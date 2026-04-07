@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: weave-harness
+Version: 0.1.0
+Summary: Weave — composing agents, CLIs, and workflows into fabric
+Requires-Python: >=3.10
+Requires-Dist: click>=8.1
+Requires-Dist: pydantic>=2.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"

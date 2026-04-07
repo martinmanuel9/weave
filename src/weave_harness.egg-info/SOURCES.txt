@@ -1,0 +1,16 @@
+pyproject.toml
+src/weave/__init__.py
+src/weave/cli.py
+src/weave/core/__init__.py
+src/weave/integrations/__init__.py
+src/weave/schemas/__init__.py
+src/weave/schemas/activity.py
+src/weave/schemas/config.py
+src/weave/schemas/manifest.py
+src/weave_harness.egg-info/PKG-INFO
+src/weave_harness.egg-info/SOURCES.txt
+src/weave_harness.egg-info/dependency_links.txt
+src/weave_harness.egg-info/entry_points.txt
+src/weave_harness.egg-info/requires.txt
+src/weave_harness.egg-info/top_level.txt
+tests/test_schemas.py

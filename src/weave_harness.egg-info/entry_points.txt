@@ -1,0 +1,2 @@
+[console_scripts]
+weave = weave.cli:main

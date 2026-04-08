@@ -87,6 +87,72 @@ def init_cmd(name, provider, phase):
             status = "available" if i.available else "unavailable"
             click.echo(f"  [{status}] {i.name} ({i.type}) — {i.reason}")
 
+        # Auto-create NotebookLM notebook if available
+        nlm = next((i for i in integrations if i.name == "notebooklm" and i.available), None)
+        nlm_config_path = cwd / ".harness" / "integrations" / "notebooklm.json"
+        if nlm and not nlm_config_path.exists():
+            try:
+                import subprocess
+                click.echo("")
+                click.echo(f"Creating NotebookLM notebook for {project_name}...")
+                result = subprocess.run(
+                    ["notebooklm", "create", f"Weave — {project_name}"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    # Parse notebook ID from output (format: "Created notebook: <id>")
+                    output = result.stdout.strip()
+                    notebook_id = None
+                    for line in output.splitlines():
+                        line = line.strip()
+                        # Try to find a UUID-like string
+                        if len(line) >= 36 and "-" in line:
+                            notebook_id = line
+                            break
+                        if ":" in line:
+                            candidate = line.split(":")[-1].strip()
+                            if len(candidate) >= 8:
+                                notebook_id = candidate
+                                break
+
+                    if not notebook_id:
+                        # Fallback: list notebooks and find the one we just created
+                        list_result = subprocess.run(
+                            ["notebooklm", "list"],
+                            capture_output=True, text=True, timeout=15,
+                        )
+                        # Find most recent notebook matching our name
+                        for line in reversed(list_result.stdout.splitlines()):
+                            if project_name.lower() in line.lower():
+                                parts = line.split()
+                                if parts and len(parts[0]) >= 8:
+                                    notebook_id = parts[0].strip("│").strip()
+                                    break
+
+                    if notebook_id:
+                        nlm_config_path.write_text(json.dumps({
+                            "notebook_id": notebook_id,
+                            "notebook_name": f"Weave — {project_name}",
+                        }, indent=2))
+                        click.echo(f"  NotebookLM notebook: {notebook_id[:12]}...")
+
+                        # Add context files as sources
+                        context_dir = cwd / ".harness" / "context"
+                        subprocess.run(["notebooklm", "use", notebook_id],
+                                       capture_output=True, text=True, timeout=10)
+                        for ctx_file in ["brief.md", "conventions.md", "spec.md"]:
+                            ctx_path = context_dir / ctx_file
+                            if ctx_path.exists():
+                                subprocess.run(["notebooklm", "source", "add", str(ctx_path)],
+                                               capture_output=True, text=True, timeout=30)
+                        click.echo("  Added harness context as notebook sources")
+                    else:
+                        click.echo("  NotebookLM notebook created but ID not captured")
+                else:
+                    click.echo(f"  NotebookLM notebook creation failed: {result.stderr.strip()[:100]}")
+            except Exception as e:
+                click.echo(f"  NotebookLM setup skipped: {e}")
+
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

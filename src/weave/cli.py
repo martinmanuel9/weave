@@ -2,17 +2,34 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import click
 
 
+def _load_dotenv():
+    """Load .env file from cwd if it exists. No dependency required."""
+    env_file = Path.cwd() / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 @click.group()
 @click.version_option(version="0.1.0")
 def main():
     """Weave — composing agents, CLIs, and workflows into fabric."""
-    pass
+    _load_dotenv()
 
 
 # ---------------------------------------------------------------------------

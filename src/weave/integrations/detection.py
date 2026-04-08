@@ -89,7 +89,7 @@ def detect_integrations(env=None) -> list[IntegrationStatus]:
         ))
 
     # --- 21st-dev (ui) ---
-    tfd_key = env.get("TWENTY_FIRST_DEV_API_KEY", "") or env.get("21ST_DEV_KEY", "")
+    tfd_key = env.get("TWENTY_FIRST_DEV_KEY", "") or env.get("TWENTY_FIRST_DEV_API_KEY", "") or env.get("21ST_DEV_KEY", "")
     if tfd_key:
         results.append(IntegrationStatus(
             name="21st-dev",

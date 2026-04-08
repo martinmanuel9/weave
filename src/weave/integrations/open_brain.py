@@ -21,6 +21,7 @@ def _is_localhost(url: str) -> bool:
 def _build_headers(key: str, url: str) -> dict:
     headers = {
         "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
         "x-brain-key": key,
     }
     if _is_localhost(url):

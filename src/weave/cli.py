@@ -528,6 +528,39 @@ def sync_cmd():
                 click.echo("NotebookLM available but not configured. Create .harness/integrations/notebooklm.json with {\"notebook_id\": \"...\"}")
                 skipped.append("NotebookLM: not configured")
 
+        # Linear sync — create/update project + tasks from spec.md
+        linear_int = next((i for i in integrations if i.name == "linear" and i.available), None)
+        if linear_int:
+            spec_path = cwd / ".harness" / "context" / "spec.md"
+            if spec_path.exists():
+                spec_content = spec_path.read_text().strip()
+                if spec_content:
+                    from weave.integrations.linear import sync_spec_to_linear
+                    linear_result = sync_spec_to_linear(project_name, spec_content)
+                    if linear_result.get("error"):
+                        skipped.append(f"Linear: {linear_result['error']}")
+                        click.echo(f"Skipped: Linear ({linear_result['error']})")
+                    else:
+                        n_tasks = linear_result["tasks_created"]
+                        synced.append(f"{project_name} spec -> Linear ({n_tasks} tasks)")
+                        click.echo(f"Synced: {project_name} spec -> Linear ({n_tasks} tasks)")
+                        if linear_result.get("note"):
+                            click.echo(f"  Note: {linear_result['note']}")
+
+                        # Save Linear project config for future syncs
+                        linear_config_path = cwd / ".harness" / "integrations" / "linear.json"
+                        linear_config_path.parent.mkdir(parents=True, exist_ok=True)
+                        linear_config_path.write_text(json.dumps({
+                            "project_id": linear_result["project_id"],
+                            "project_name": linear_result["project_name"],
+                        }, indent=2))
+                else:
+                    skipped.append("Linear: spec.md is empty")
+            else:
+                skipped.append("Linear: no spec.md found")
+        else:
+            skipped.append("Linear: not configured (missing LINEAR_API_KEY)")
+
         click.echo(f"\nSynced: {len(synced)}  Skipped: {len(skipped)}")
 
     except Exception as exc:

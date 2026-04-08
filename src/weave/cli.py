@@ -412,6 +412,32 @@ def sync_cmd():
             skipped.append(f"{project_name} context")
             click.echo(f"Skipped: {project_name} context (Open Brain error)")
 
+        # NotebookLM sync
+        nlm = next((i for i in integrations if i.name == "notebooklm" and i.available), None)
+        if nlm:
+            from weave.integrations.notebooklm import sync_context_to_notebook
+            # Look for notebook_id in .harness/integrations/notebooklm.json
+            nlm_config_path = cwd / ".harness" / "integrations" / "notebooklm.json"
+            if nlm_config_path.exists():
+                import json as _json
+                nlm_config = _json.loads(nlm_config_path.read_text())
+                notebook_id = nlm_config.get("notebook_id", "")
+                if notebook_id:
+                    result = sync_context_to_notebook(
+                        notebook_id, cwd / ".harness" / "context", project_name
+                    )
+                    if result["synced"]:
+                        synced.append(f"{project_name} context -> NotebookLM")
+                        click.echo(f"Synced: {project_name} context -> NotebookLM ({notebook_id[:8]}...)")
+                    else:
+                        skipped.append(f"NotebookLM: {result['error']}")
+                        click.echo(f"Skipped: NotebookLM ({result['error']})")
+                else:
+                    skipped.append("NotebookLM: no notebook_id configured")
+            else:
+                click.echo("NotebookLM available but not configured. Create .harness/integrations/notebooklm.json with {\"notebook_id\": \"...\"}")
+                skipped.append("NotebookLM: not configured")
+
         click.echo(f"\nSynced: {len(synced)}  Skipped: {len(skipped)}")
 
     except Exception as exc:

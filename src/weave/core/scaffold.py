@@ -113,6 +113,17 @@ def scaffold_project(
         f"# {name} \u2014 Specification\n\nAdd requirements and acceptance criteria here.\n",
     )
 
+    # Ensure .env is in .gitignore (append if not already present)
+    gitignore_path = project_dir / ".gitignore"
+    env_entries = ".env\n.env.local\n.env.*.local\n"
+    if gitignore_path.exists():
+        existing = gitignore_path.read_text()
+        if ".env" not in existing:
+            with open(gitignore_path, "a") as f:
+                f.write(f"\n# Environment secrets (added by weave init)\n{env_entries}")
+    else:
+        gitignore_path.write_text(f"# Environment secrets\n{env_entries}")
+
     # Generate bash adapter scripts for installed providers
     providers_dir = harness_dir / "providers"
     for provider in installed:

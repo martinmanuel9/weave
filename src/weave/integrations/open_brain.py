@@ -30,12 +30,24 @@ def _build_headers(key: str, url: str) -> dict:
 
 
 def _mcp_post(url: str, key: str, payload: dict) -> dict:
-    """Send a JSON-RPC 2.0 request and return the parsed response dict."""
+    """Send a JSON-RPC 2.0 request and return the parsed response dict.
+
+    Handles both raw JSON and SSE (Server-Sent Events) responses.
+    The Open Brain MCP server returns SSE format: ``event: message\\ndata: {...}``
+    """
     body = json.dumps(payload).encode()
     headers = _build_headers(key, url)
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode())
+        raw = resp.read().decode()
+
+    # Try SSE format first (event: ...\ndata: {...})
+    for line in raw.splitlines():
+        if line.startswith("data: "):
+            return json.loads(line[6:])
+
+    # Fallback: raw JSON
+    return json.loads(raw)
 
 
 def capture_thought(url: str, key: str, content: str) -> bool:

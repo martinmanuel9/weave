@@ -96,24 +96,20 @@ def init_cmd(name, provider, phase):
                 click.echo("")
                 click.echo(f"Creating NotebookLM notebook for {project_name}...")
                 result = subprocess.run(
-                    ["notebooklm", "create", f"Weave — {project_name}"],
+                    ["notebooklm", "create", project_name],
                     capture_output=True, text=True, timeout=30,
                 )
                 if result.returncode == 0 and result.stdout.strip():
-                    # Parse notebook ID from output (format: "Created notebook: <id>")
+                    # Parse notebook ID (UUID) from output
+                    import re
                     output = result.stdout.strip()
                     notebook_id = None
-                    for line in output.splitlines():
-                        line = line.strip()
-                        # Try to find a UUID-like string
-                        if len(line) >= 36 and "-" in line:
-                            notebook_id = line
-                            break
-                        if ":" in line:
-                            candidate = line.split(":")[-1].strip()
-                            if len(candidate) >= 8:
-                                notebook_id = candidate
-                                break
+                    uuid_match = re.search(
+                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                        output, re.IGNORECASE,
+                    )
+                    if uuid_match:
+                        notebook_id = uuid_match.group(0)
 
                     if not notebook_id:
                         # Fallback: list notebooks and find the one we just created
@@ -132,7 +128,7 @@ def init_cmd(name, provider, phase):
                     if notebook_id:
                         nlm_config_path.write_text(json.dumps({
                             "notebook_id": notebook_id,
-                            "notebook_name": f"Weave — {project_name}",
+                            "notebook_name": project_name,
                         }, indent=2))
                         click.echo(f"  NotebookLM notebook: {notebook_id[:12]}...")
 

@@ -14,8 +14,8 @@ from weave.core.providers import ProviderInfo, detect_providers
 
 # CLI flags per provider name
 _CLI_FLAGS: dict[str, str] = {
-    "claude-code": "--print",
-    "codex": "--print",
+    "claude-code": "-p",
+    "codex": "exec",
     "gemini": "",
     "ollama": "run",
 }

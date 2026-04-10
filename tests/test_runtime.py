@@ -74,3 +74,31 @@ def test_prepare_raises_when_provider_not_configured(temp_dir):
     _init_harness(temp_dir)
     with pytest.raises(ValueError, match="not configured"):
         prepare(task="x", working_dir=temp_dir, provider="ghost", caller="test")
+
+
+def test_execute_happy_path(temp_dir):
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+    result = execute(
+        task="say hi",
+        working_dir=temp_dir,
+        caller="test",
+    )
+    assert result.status == RuntimeStatus.SUCCESS
+    assert result.policy_result.allowed is True
+    assert result.invoke_result is not None
+    assert result.invoke_result.exit_code == 0
+    assert result.risk_class == RiskClass.WORKSPACE_WRITE
+
+
+def test_execute_logs_activity(temp_dir):
+    from weave.core.runtime import execute
+    from weave.core.session import read_session_activities
+    _init_harness(temp_dir)
+    result = execute(task="x", working_dir=temp_dir, caller="test")
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    records = read_session_activities(sessions_dir, result.session_id)
+    assert len(records) == 1
+    assert records[0].caller == "test"
+    assert records[0].runtime_status == "success"
+    assert records[0].risk_class == "workspace-write"

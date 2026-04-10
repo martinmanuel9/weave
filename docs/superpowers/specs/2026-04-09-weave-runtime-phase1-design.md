@@ -181,7 +181,7 @@ WRITE_DENY_LIST = [
 
 1. Check rule's configured action (if set in `.harness/config.json` under `security.supply_chain_rules`)
 2. Else use rule's default_action
-3. Apply phase override: if phase is `sandbox` and action is `deny`, downgrade to `warn`
+3. Apply phase override: if phase is `sandbox` and action is `deny`, downgrade to `warn`. Actions already at `warn` or `log` are unaffected. In `mvp`/`enterprise` phases, no downgrade occurs.
 4. Return `SecurityFinding(rule_id, file, match, action_taken)`
 
 ```python

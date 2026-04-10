@@ -57,7 +57,7 @@ No `tool_catalog_hash` or `memory_config_hash`. Neither concept exists in Phase 
 
 ### `compute_binding(ctx: PreparedContext) -> SessionBinding`
 
-Pure function. No filesystem writes. Produces a `SessionBinding` from an already-constructed `PreparedContext` by reading data already on the context object.
+No filesystem writes. Produces a `SessionBinding` from an already-constructed `PreparedContext` by reading data already on the context object. Not strictly pure because `created_at` is populated from wall-clock time via `datetime.now(timezone.utc)` — but `created_at` is an identity field excluded from compatibility comparisons, so the four hash/name fields that `validate_session()` actually checks are deterministic for identical inputs.
 
 ```python
 def compute_binding(ctx: PreparedContext) -> SessionBinding:

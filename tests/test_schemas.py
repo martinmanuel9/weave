@@ -119,3 +119,50 @@ def test_config_json_roundtrip():
     assert restored.version == original.version
     assert set(restored.providers.keys()) == set(original.providers.keys())
     assert restored.sessions.compaction.keep_recent == original.sessions.compaction.keep_recent
+
+
+# ---------------------------------------------------------------------------
+# Policy schema tests
+# ---------------------------------------------------------------------------
+
+def test_risk_class_ordering():
+    from weave.schemas.policy import RiskClass, risk_class_level
+    assert risk_class_level(RiskClass.READ_ONLY) == 0
+    assert risk_class_level(RiskClass.WORKSPACE_WRITE) == 1
+    assert risk_class_level(RiskClass.EXTERNAL_NETWORK) == 2
+    assert risk_class_level(RiskClass.DESTRUCTIVE) == 3
+
+
+def test_policy_result_defaults():
+    from weave.schemas.policy import PolicyResult, RiskClass
+    r = PolicyResult(
+        allowed=True,
+        effective_risk_class=RiskClass.READ_ONLY,
+        provider_ceiling=RiskClass.WORKSPACE_WRITE,
+    )
+    assert r.allowed is True
+    assert r.warnings == []
+    assert r.denials == []
+    assert r.hook_results == []
+
+
+def test_security_finding_fields():
+    from weave.schemas.policy import SecurityFinding
+    f = SecurityFinding(
+        rule_id="pth-injection",
+        file="evil.pth",
+        match="suspicious content",
+        severity="critical",
+        action_taken="deny",
+    )
+    assert f.rule_id == "pth-injection"
+    assert f.action_taken == "deny"
+
+
+def test_runtime_status_values():
+    from weave.schemas.policy import RuntimeStatus
+    assert RuntimeStatus.SUCCESS == "success"
+    assert RuntimeStatus.DENIED == "denied"
+    assert RuntimeStatus.FLAGGED == "flagged"
+    assert RuntimeStatus.FAILED == "failed"
+    assert RuntimeStatus.TIMEOUT == "timeout"

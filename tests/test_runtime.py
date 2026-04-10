@@ -102,3 +102,67 @@ def test_execute_logs_activity(temp_dir):
     assert records[0].caller == "test"
     assert records[0].runtime_status == "success"
     assert records[0].risk_class == "workspace-write"
+
+
+def test_execute_flags_write_deny_in_sandbox(temp_dir):
+    """Sandbox phase downgrades deny to warn, so status is FLAGGED."""
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo "SECRET=leaked" > .env\n'
+        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    (temp_dir / "seed.txt").write_text("x")
+    subprocess.run(["git", "add", "seed.txt"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    result = execute(task="make env", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.FLAGGED
+    assert result.security_result is not None
+    assert any(
+        f.rule_id == "write-deny-list"
+        for f in result.security_result.findings
+    )
+
+
+def test_execute_denies_write_deny_in_mvp(temp_dir):
+    """MVP phase preserves deny, so status is DENIED."""
+    from weave.core.runtime import execute
+    import json as _json
+    _init_harness(temp_dir)
+
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["phase"] = "mvp"
+    config_path.write_text(_json.dumps(config))
+
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo "fake" > credentials.json\n'
+        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    (temp_dir / "seed.txt").write_text("x")
+    subprocess.run(["git", "add", "seed.txt"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    result = execute(task="make creds", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.DENIED
+    assert result.security_result.action_taken == "denied"

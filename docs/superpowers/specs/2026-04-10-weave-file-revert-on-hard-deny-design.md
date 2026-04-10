@@ -38,7 +38,11 @@ if invoke_result.exit_code == 0:
     # determine final status (SUCCESS / FLAGGED / DENIED) based on security_result.action_taken
 ```
 
-`_revert` runs only when `security_result.action_taken == "denied"`. In sandbox phase, findings are downgraded to `"flagged"` (via `resolve_action`) and no revert happens. In mvp/enterprise with a denied finding, revert runs and the final status is `RuntimeStatus.DENIED`.
+`_revert` runs only when:
+1. `security_result is not None` (i.e. invoke succeeded and scan ran), AND
+2. `security_result.action_taken == "denied"`.
+
+If invoke failed with a non-zero exit code or timed out, `security_result` is `None` and `_revert` is never called — there is nothing to judge. In sandbox phase, findings are downgraded to `"flagged"` (via `resolve_action`) and no revert happens. In mvp/enterprise with a denied finding, revert runs and the final status is `RuntimeStatus.DENIED`.
 
 ## Snapshot Strategy
 

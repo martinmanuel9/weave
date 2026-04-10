@@ -72,3 +72,35 @@ def test_compute_binding_uses_context_stable_hash(temp_dir):
     # The binding's context_stable_hash must equal the one already
     # computed by assemble_context in MAR-142 — no recomputation.
     assert binding.context_stable_hash == ctx.context.stable_hash
+
+
+def test_compute_binding_config_hash_is_canonical():
+    """Config hash is byte-stable regardless of dict insertion order."""
+    from weave.core.session_binding import _hash_config
+    from weave.schemas.config import ProviderConfig, WeaveConfig
+    from weave.schemas.policy import RiskClass
+
+    # Two configs with semantically identical providers but
+    # different insertion order
+    config_a = WeaveConfig(
+        version="1",
+        phase="sandbox",
+        default_provider="claude-code",
+        providers={
+            "claude-code": ProviderConfig(command="claude", capability=RiskClass.WORKSPACE_WRITE),
+            "codex": ProviderConfig(command="codex", capability=RiskClass.WORKSPACE_WRITE),
+            "gemini": ProviderConfig(command="gemini", capability=RiskClass.WORKSPACE_WRITE),
+        },
+    )
+    config_b = WeaveConfig(
+        version="1",
+        phase="sandbox",
+        default_provider="claude-code",
+        providers={
+            "gemini": ProviderConfig(command="gemini", capability=RiskClass.WORKSPACE_WRITE),
+            "codex": ProviderConfig(command="codex", capability=RiskClass.WORKSPACE_WRITE),
+            "claude-code": ProviderConfig(command="claude", capability=RiskClass.WORKSPACE_WRITE),
+        },
+    )
+
+    assert _hash_config(config_a) == _hash_config(config_b)

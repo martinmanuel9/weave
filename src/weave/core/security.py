@@ -11,30 +11,47 @@ def check_write_deny(
     files_changed: list[str],
     working_dir: Path,
     patterns: list[str],
+    allow_patterns: list[str] | None = None,
 ) -> list[str]:
-    """Return the subset of files_changed that match any deny pattern.
+    """Return the subset of files_changed that match any deny pattern
+    and do not match any allow pattern.
 
-    Symlink-aware: resolves real paths before pattern matching, so a symlink
-    pointing at a denied target is itself denied.
+    Deny matching is symlink-aware: it resolves real paths before pattern
+    matching, so a symlink pointing at a denied target is itself denied.
+    Allow matching uses only the relative path as written — stricter by
+    design, so that attackers cannot alias around allow entries via
+    symlinks. Passing None or [] for allow_patterns preserves Phase 1
+    behavior (no exemptions).
     """
+    allow = allow_patterns or []
     denied: list[str] = []
     for rel in files_changed:
         abs_path = (working_dir / rel).resolve()
+        matched_deny = False
         if _any_match(rel, patterns):
-            denied.append(rel)
+            matched_deny = True
+        else:
+            try:
+                rel_resolved = abs_path.relative_to(working_dir.resolve())
+                if _any_match(str(rel_resolved), patterns):
+                    matched_deny = True
+            except ValueError:
+                # abs_path escapes working_dir; suspicious
+                matched_deny = True
+            if not matched_deny:
+                basename = os.path.basename(rel)
+                if _any_match(basename, patterns):
+                    matched_deny = True
+
+        if not matched_deny:
             continue
-        try:
-            rel_resolved = abs_path.relative_to(working_dir.resolve())
-            if _any_match(str(rel_resolved), patterns):
-                denied.append(rel)
-                continue
-        except ValueError:
-            # abs_path escapes working_dir; suspicious
-            denied.append(rel)
+
+        # Allow override: exempt if the relative path as written matches
+        # any allow pattern. No symlink resolution, no basename fallback.
+        if allow and _any_match(rel, allow):
             continue
-        basename = os.path.basename(rel)
-        if _any_match(basename, patterns):
-            denied.append(rel)
+
+        denied.append(rel)
     return denied
 
 

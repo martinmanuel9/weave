@@ -45,6 +45,18 @@ def test_check_write_deny_nested_path(temp_dir):
     assert ".harness/context/spec.md" not in denied
 
 
+def test_check_write_deny_honors_allow_override(temp_dir):
+    """Allow pattern exempts a file that matches a deny pattern."""
+    from weave.core.security import check_write_deny
+    denied = check_write_deny(
+        files_changed=[".env"],
+        working_dir=temp_dir,
+        patterns=[".env"],
+        allow_patterns=[".env"],
+    )
+    assert denied == []
+
+
 def test_scanner_detects_pth_injection(temp_dir):
     from weave.core.security import scan_files, DEFAULT_RULES
     f = temp_dir / "evil.pth"

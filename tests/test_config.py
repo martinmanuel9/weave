@@ -70,3 +70,47 @@ def test_resolve_user_layer(tmp_path):
 
     config = resolve_config(project_dir=project_dir, user_home=user_home)
     assert config.logging.level == "debug"
+
+
+def test_provider_config_capability_default():
+    from weave.schemas.config import ProviderConfig
+    from weave.schemas.policy import RiskClass
+    p = ProviderConfig(command="x")
+    assert p.capability == RiskClass.WORKSPACE_WRITE
+
+
+def test_provider_config_capability_explicit():
+    from weave.schemas.config import ProviderConfig
+    from weave.schemas.policy import RiskClass
+    p = ProviderConfig(command="x", capability="read-only")
+    assert p.capability == RiskClass.READ_ONLY
+
+
+def test_security_config_defaults():
+    from weave.schemas.config import SecurityConfig
+    s = SecurityConfig()
+    assert ".env" in s.write_deny_list
+    assert "*.pem" in s.write_deny_list
+    assert s.supply_chain_rules == {}
+    assert s.write_deny_extras == []
+
+
+def test_weave_config_has_security():
+    from weave.schemas.config import WeaveConfig
+    c = WeaveConfig()
+    assert c.security is not None
+    assert ".env" in c.security.write_deny_list
+
+
+def test_weave_config_backwards_compat():
+    """Existing config JSON without security/capability still parses."""
+    from weave.schemas.config import WeaveConfig
+    legacy = {
+        "version": "1",
+        "phase": "sandbox",
+        "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude"}},
+    }
+    c = WeaveConfig.model_validate(legacy)
+    assert c.providers["claude-code"].capability.value == "workspace-write"
+    assert c.security is not None

@@ -57,3 +57,18 @@ def test_compute_binding_produces_all_fields(temp_dir):
     assert len(binding.config_hash) == 64
     # created_at is timezone-aware
     assert binding.created_at.tzinfo is not None
+
+
+def test_compute_binding_uses_context_stable_hash(temp_dir):
+    """compute_binding reuses the ContextAssembly.stable_hash, not a recomputed value."""
+    from weave.core.runtime import prepare
+    from weave.core.session_binding import compute_binding
+
+    _init_harness(temp_dir)
+    ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    binding = compute_binding(ctx)
+
+    # The binding's context_stable_hash must equal the one already
+    # computed by assemble_context in MAR-142 — no recomputation.
+    assert binding.context_stable_hash == ctx.context.stable_hash

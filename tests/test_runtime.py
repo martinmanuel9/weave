@@ -389,3 +389,49 @@ def test_execute_reverts_tracked_file_on_hard_deny(temp_dir):
     assert result.status == RuntimeStatus.DENIED
     assert root_config.read_text() == '{"version": "original"}'  # restored from HEAD
     assert "config.json" in result.security_result.files_reverted
+
+
+def test_execute_reverts_all_files_changed_not_just_flagged(temp_dir):
+    """Denied invocations roll back the entire work, not just flagged files.
+
+    Adapter writes helper.py (harmless) AND .env (denied). On hard-deny in
+    mvp phase, BOTH must be reverted — even though only .env triggered the
+    denial. This encodes the invariant that the unit of judgment is the
+    invocation, not the individual file.
+    """
+    from weave.core.runtime import execute
+    import json as _json
+    import subprocess
+    _init_harness(temp_dir)
+
+    # mvp phase
+    harness_config_path = temp_dir / ".harness" / "config.json"
+    harness_config = _json.loads(harness_config_path.read_text())
+    harness_config["phase"] = "mvp"
+    harness_config_path.write_text(_json.dumps(harness_config))
+
+    # Init git with clean baseline
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    # Adapter writes TWO untracked files: one flagged, one clean
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo "def add(a, b): return a + b" > helper.py\n'
+        'echo "SECRET=leaked" > .env\n'
+        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    result = execute(task="mixed write", working_dir=temp_dir, caller="test")
+
+    assert result.status == RuntimeStatus.DENIED
+    assert not (temp_dir / ".env").exists()  # flagged, reverted
+    assert not (temp_dir / "helper.py").exists()  # NOT flagged, but STILL reverted
+    assert ".env" in result.security_result.files_reverted
+    assert "helper.py" in result.security_result.files_reverted

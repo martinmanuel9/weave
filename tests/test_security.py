@@ -57,6 +57,18 @@ def test_check_write_deny_honors_allow_override(temp_dir):
     assert denied == []
 
 
+def test_check_write_deny_allow_does_not_leak_to_other_files(temp_dir):
+    """Allow is surgical — it exempts only matching files, not others."""
+    from weave.core.security import check_write_deny
+    denied = check_write_deny(
+        files_changed=[".env", "cert.pem"],
+        working_dir=temp_dir,
+        patterns=[".env", "*.pem"],
+        allow_patterns=[".env"],
+    )
+    assert denied == ["cert.pem"]
+
+
 def test_scanner_detects_pth_injection(temp_dir):
     from weave.core.security import scan_files, DEFAULT_RULES
     f = temp_dir / "evil.pth"

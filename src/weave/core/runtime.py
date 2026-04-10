@@ -229,7 +229,7 @@ def _security_scan(
     return SecurityResult(
         findings=findings,
         action_taken=action_taken,
-        files_reverted=[],  # revert deferred to Phase 2
+        files_reverted=[],  # populated by _revert stage if action_taken == "denied"
     )
 
 

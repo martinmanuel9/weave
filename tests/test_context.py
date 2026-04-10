@@ -48,3 +48,34 @@ def test_assemble_context_byte_stable_across_runs(temp_dir):
     assert first.stable_hash == second.stable_hash
     assert first.full_hash == second.full_hash
     assert first.source_files == second.source_files
+
+
+def test_assemble_context_normalizes_line_endings(temp_dir):
+    """CRLF and LF produce identical stable_hash when content is semantically equal."""
+    from weave.core.context import assemble_context
+
+    # Two separate temp directories with semantically-identical content
+    # but different line endings
+    lf_dir = temp_dir / "lf"
+    crlf_dir = temp_dir / "crlf"
+    lf_dir.mkdir()
+    crlf_dir.mkdir()
+
+    lf_context = lf_dir / ".harness" / "context"
+    crlf_context = crlf_dir / ".harness" / "context"
+    lf_context.mkdir(parents=True)
+    crlf_context.mkdir(parents=True)
+
+    # Same semantic content, different raw bytes
+    lf_content = "line one\nline two\nline three\n"
+    crlf_content = "line one\r\nline two\r\nline three\r\n"
+
+    # Write as bytes to bypass any platform auto-translation
+    (lf_context / "spec.md").write_bytes(lf_content.encode("utf-8"))
+    (crlf_context / "spec.md").write_bytes(crlf_content.encode("utf-8"))
+
+    lf_result = assemble_context(lf_dir)
+    crlf_result = assemble_context(crlf_dir)
+
+    assert lf_result.stable_hash == crlf_result.stable_hash
+    assert lf_result.stable_prefix == crlf_result.stable_prefix

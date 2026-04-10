@@ -56,3 +56,28 @@ def compute_binding(ctx) -> SessionBinding:
         context_stable_hash=ctx.context.stable_hash,
         config_hash=_hash_config(ctx.config),
     )
+
+
+def write_binding(binding: SessionBinding, sessions_dir: Path) -> Path:
+    """Serialize a SessionBinding to a .binding.json sidecar.
+
+    Creates sessions_dir if it does not exist (matching append_activity's
+    behavior). Returns the written path.
+    """
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    sidecar_path = sessions_dir / f"{binding.session_id}.binding.json"
+    sidecar_path.write_text(binding.model_dump_json(indent=2))
+    return sidecar_path
+
+
+def read_binding(session_id: str, sessions_dir: Path) -> SessionBinding | None:
+    """Load a SessionBinding from its .binding.json sidecar.
+
+    Returns None if the file does not exist. Raises on malformed JSON
+    or Pydantic validation errors — a broken binding is an operator-facing
+    error, not silently ignorable.
+    """
+    sidecar_path = sessions_dir / f"{session_id}.binding.json"
+    if not sidecar_path.exists():
+        return None
+    return SessionBinding.model_validate_json(sidecar_path.read_text())

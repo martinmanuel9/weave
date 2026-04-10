@@ -104,3 +104,44 @@ def test_compute_binding_config_hash_is_canonical():
     )
 
     assert _hash_config(config_a) == _hash_config(config_b)
+
+
+def test_write_and_read_binding_round_trip(temp_dir):
+    """write_binding + read_binding is lossless for all fields."""
+    from datetime import datetime, timezone
+    from weave.core.session_binding import read_binding, write_binding
+    from weave.schemas.session_binding import SessionBinding
+
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    original = SessionBinding(
+        session_id="test-session-123",
+        created_at=datetime(2026, 4, 10, 12, 34, 56, tzinfo=timezone.utc),
+        provider_name="claude-code",
+        adapter_script_hash="a" * 64,
+        context_stable_hash="b" * 64,
+        config_hash="c" * 64,
+    )
+
+    written_path = write_binding(original, sessions_dir)
+    assert written_path.exists()
+    assert written_path.name == "test-session-123.binding.json"
+
+    loaded = read_binding("test-session-123", sessions_dir)
+    assert loaded is not None
+    assert loaded.session_id == original.session_id
+    assert loaded.created_at == original.created_at
+    assert loaded.provider_name == original.provider_name
+    assert loaded.adapter_script_hash == original.adapter_script_hash
+    assert loaded.context_stable_hash == original.context_stable_hash
+    assert loaded.config_hash == original.config_hash
+
+
+def test_read_binding_returns_none_for_missing_file(temp_dir):
+    """read_binding returns None when the sidecar file does not exist."""
+    from weave.core.session_binding import read_binding
+
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    sessions_dir.mkdir(parents=True)
+
+    result = read_binding("nonexistent", sessions_dir)
+    assert result is None

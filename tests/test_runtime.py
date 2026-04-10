@@ -577,3 +577,41 @@ def test_execute_still_passes_context_string_to_invoker(temp_dir):
     captured = (temp_dir / "received_context.txt").read_text()
     assert captured == expected_context_str
     assert isinstance(captured, str)
+
+
+def test_prepare_writes_session_binding_sidecar(temp_dir):
+    """prepare() writes a .binding.json sidecar next to the session."""
+    import json as _json
+    from weave.core.runtime import prepare
+    _init_harness(temp_dir)
+
+    ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    sidecar = temp_dir / ".harness" / "sessions" / f"{ctx.session_id}.binding.json"
+    assert sidecar.exists()
+
+    data = _json.loads(sidecar.read_text())
+    assert data["session_id"] == ctx.session_id
+    assert "created_at" in data
+    assert data["provider_name"] == ctx.active_provider
+    assert len(data["adapter_script_hash"]) == 64
+    assert len(data["context_stable_hash"]) == 64
+    assert len(data["config_hash"]) == 64
+
+
+def test_validate_session_raises_for_missing_binding(temp_dir):
+    """validate_session raises FileNotFoundError when no sidecar exists."""
+    import pytest
+    from weave.core.runtime import prepare
+    from weave.core.session_binding import validate_session
+    _init_harness(temp_dir)
+
+    ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    # Delete the binding sidecar that prepare() just wrote
+    sidecar = temp_dir / ".harness" / "sessions" / f"{ctx.session_id}.binding.json"
+    sidecar.unlink()
+
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    with pytest.raises(FileNotFoundError, match="No binding sidecar"):
+        validate_session(ctx.session_id, ctx, sessions_dir)

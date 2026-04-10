@@ -17,6 +17,7 @@ from weave.core.invoker import InvokeResult, invoke_provider
 from weave.core.policy import evaluate_policy
 from weave.core.security import DEFAULT_RULES, check_write_deny, resolve_action, scan_files
 from weave.core.session import append_activity, create_session
+from weave.core.session_binding import compute_binding, write_binding
 from weave.schemas.activity import ActivityRecord, ActivityStatus, ActivityType, HookResult
 from weave.schemas.config import ProviderConfig, WeaveConfig
 from weave.schemas.context import ContextAssembly
@@ -122,7 +123,7 @@ def prepare(
     session_id = create_session()
     pre_invoke_untracked = _snapshot_untracked(working_dir)
 
-    return PreparedContext(
+    prepared = PreparedContext(
         config=config,
         active_provider=active_provider,
         provider_config=provider_config,
@@ -136,6 +137,13 @@ def prepare(
         requested_risk_class=requested_risk_class,
         pre_invoke_untracked=pre_invoke_untracked,
     )
+
+    # Write the session binding sidecar
+    binding = compute_binding(prepared)
+    sessions_dir = working_dir / ".harness" / "sessions"
+    write_binding(binding, sessions_dir)
+
+    return prepared
 
 
 def _policy_check(ctx: PreparedContext) -> tuple[PolicyResult, list[HookResult]]:

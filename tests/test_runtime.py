@@ -166,3 +166,18 @@ def test_execute_denies_write_deny_in_mvp(temp_dir):
     result = execute(task="make creds", working_dir=temp_dir, caller="test")
     assert result.status == RuntimeStatus.DENIED
     assert result.security_result.action_taken == "denied"
+
+
+def test_execute_denies_when_requested_class_exceeds_ceiling(temp_dir):
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+    result = execute(
+        task="x",
+        working_dir=temp_dir,
+        caller="test",
+        requested_risk_class=RiskClass.DESTRUCTIVE,
+    )
+    assert result.status == RuntimeStatus.DENIED
+    assert result.policy_result.allowed is False
+    assert result.invoke_result is None
+    assert any("ceiling" in d.lower() for d in result.policy_result.denials)

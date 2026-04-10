@@ -67,8 +67,9 @@ Ordering rules applied by `assemble_context()`:
 
 1. Files in `_CANONICAL_ORDER` appear first, in that exact order
 2. Remaining `*.md` files follow in alphabetical order
-3. Hidden files (starting with `.`) are excluded
-4. Missing canonical files are silently skipped — an operator without a `brief.md` still gets a valid assembly
+3. Canonical files are removed from the "rest" partition before alphabetical ordering — no file is ever concatenated twice
+4. Hidden files (starting with `.`) are excluded
+5. Missing canonical files are silently skipped — an operator without a `brief.md` still gets a valid assembly
 
 This ordering matches the existing `.harness/context/` convention while making the precedence explicit and machine-enforceable.
 

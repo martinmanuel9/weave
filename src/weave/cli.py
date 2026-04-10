@@ -162,106 +162,64 @@ def init_cmd(name, provider, phase):
 @click.argument("task")
 @click.option("--provider", "-p", default=None, help="Override default provider")
 @click.option("--timeout", "-t", default=300, show_default=True, help="Timeout in seconds")
-def invoke_cmd(task, provider, timeout):
-    """Invoke an agent provider with a task."""
+@click.option("--risk-class", default=None,
+              type=click.Choice(["read-only", "workspace-write", "external-network", "destructive"]),
+              help="Request a specific risk class (must be <= provider ceiling)")
+def invoke_cmd(task, provider, timeout, risk_class):
+    """Invoke an agent provider with a task through the governed runtime."""
     try:
-        from weave.core.config import resolve_config
-        from weave.core.hooks import HookContext, run_hooks
-        from weave.core.invoker import invoke_provider
-        from weave.core.session import create_session, append_activity
-        from weave.schemas.activity import ActivityRecord, ActivityType, ActivityStatus
+        from weave.core.runtime import execute
+        from weave.schemas.policy import RiskClass, RuntimeStatus
 
         cwd = Path.cwd()
-        config = resolve_config(cwd)
+        requested = RiskClass(risk_class) if risk_class else None
 
-        # Determine provider to use
-        active_provider = provider or config.default_provider
-
-        # Load context from .harness/context/*.md
-        context_parts = []
-        context_dir = cwd / ".harness" / "context"
-        if context_dir.exists():
-            for md_file in sorted(context_dir.glob("*.md")):
-                if not md_file.name.startswith("."):
-                    context_parts.append(md_file.read_text())
-        context = "\n---\n".join(context_parts)
-
-        # Run pre-invoke hooks
-        pre_ctx = HookContext(
-            provider=active_provider,
-            task=task,
-            working_dir=str(cwd),
-            phase="pre-invoke",
-        )
-        pre_result = run_hooks(config.hooks.pre_invoke, pre_ctx)
-        if not pre_result.allowed:
-            denied_msg = next(
-                (r.message for r in pre_result.results if r.result == "deny"), "denied by hook"
-            )
-            click.echo(f"Invocation denied by pre-invoke hook: {denied_msg}", err=True)
-            sys.exit(1)
-
-        # Build adapter script path
-        provider_config = config.providers.get(active_provider)
-        if provider_config is None:
-            click.echo(f"Error: provider '{active_provider}' not configured", err=True)
-            sys.exit(1)
-
-        adapter_script = cwd / ".harness" / "providers" / f"{active_provider}.sh"
-
-        # Invoke
-        result = invoke_provider(
-            adapter_script=adapter_script,
+        result = execute(
             task=task,
             working_dir=cwd,
-            context=context,
+            provider=provider,
+            caller="cli",
+            requested_risk_class=requested,
             timeout=timeout,
         )
 
-        # Run post-invoke hooks
-        post_ctx = HookContext(
-            provider=active_provider,
-            task=task,
-            working_dir=str(cwd),
-            phase="post-invoke",
-        )
-        run_hooks(config.hooks.post_invoke, post_ctx)
+        if result.policy_result.denials:
+            for d in result.policy_result.denials:
+                click.echo(f"Policy denied: {d}", err=True)
+        if result.policy_result.warnings:
+            for w in result.policy_result.warnings:
+                click.echo(f"Policy warning: {w}", err=True)
 
-        # Log activity
-        session_id = create_session()
-        sessions_dir = cwd / ".harness" / "sessions"
-        status = ActivityStatus.success if result.exit_code == 0 else ActivityStatus.failure
-        record = ActivityRecord(
-            session_id=session_id,
-            type=ActivityType.invoke,
-            provider=active_provider,
-            task=task,
-            working_dir=str(cwd),
-            duration=result.duration,
-            exit_code=result.exit_code,
-            files_changed=result.files_changed,
-            status=status,
-            hook_results=pre_result.results,
-        )
-        append_activity(sessions_dir, session_id, record)
+        if result.security_result and result.security_result.findings:
+            for f in result.security_result.findings:
+                click.echo(
+                    f"Security [{f.action_taken}] {f.rule_id}: {f.file}",
+                    err=True,
+                )
 
-        # Print output
-        output = result.stdout
-        if result.structured and "stdout" in result.structured:
-            output = result.structured["stdout"]
-        if output:
-            click.echo(output)
-        if result.stderr:
-            click.echo(result.stderr, err=True)
+        if result.invoke_result is not None:
+            output = result.invoke_result.stdout
+            if result.invoke_result.structured and "stdout" in result.invoke_result.structured:
+                output = result.invoke_result.structured["stdout"]
+            if output:
+                click.echo(output)
+            if result.invoke_result.stderr:
+                click.echo(result.invoke_result.stderr, err=True)
 
-        duration_s = result.duration / 1000
-        files_count = len(result.files_changed)
-        click.echo(
-            f"\n{active_provider} | {duration_s:.1f}s | {files_count} file(s) changed | session {session_id}"
-        )
+            duration_s = result.invoke_result.duration / 1000
+            files_count = len(result.invoke_result.files_changed)
+            active = provider or "weave"
+            click.echo(
+                f"\n{active} | {duration_s:.1f}s | {files_count} file(s) changed | "
+                f"session {result.session_id} | status {result.status.value}"
+            )
 
-        if result.exit_code != 0:
-            sys.exit(result.exit_code)
+        if result.status == RuntimeStatus.DENIED:
+            sys.exit(2)
+        if result.status == RuntimeStatus.FAILED:
+            sys.exit(result.invoke_result.exit_code if result.invoke_result else 1)
+        if result.status == RuntimeStatus.TIMEOUT:
+            sys.exit(124)
 
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)

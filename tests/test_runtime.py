@@ -181,3 +181,27 @@ def test_execute_denies_when_requested_class_exceeds_ceiling(temp_dir):
     assert result.policy_result.allowed is False
     assert result.invoke_result is None
     assert any("ceiling" in d.lower() for d in result.policy_result.denials)
+
+
+def test_cli_invoke_routes_through_runtime(temp_dir, monkeypatch):
+    from click.testing import CliRunner
+    from weave.cli import main
+    import subprocess
+
+    _init_harness(temp_dir)
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    (temp_dir / "seed.txt").write_text("x")
+    subprocess.run(["git", "add", "seed.txt"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    monkeypatch.chdir(temp_dir)
+    runner = CliRunner()
+    result = runner.invoke(main, ["invoke", "say hi"])
+    assert result.exit_code == 0
+    sessions = list((temp_dir / ".harness" / "sessions").glob("*.jsonl"))
+    assert len(sessions) == 1
+    content = sessions[0].read_text()
+    assert '"runtime_status"' in content
+    assert '"caller":"cli"' in content or '"caller": "cli"' in content

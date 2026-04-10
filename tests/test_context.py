@@ -1,4 +1,5 @@
 """Tests for deterministic context assembly."""
+import hashlib as _hashlib
 from pathlib import Path
 
 
@@ -79,9 +80,6 @@ def test_assemble_context_normalizes_line_endings(temp_dir):
 
     assert lf_result.stable_hash == crlf_result.stable_hash
     assert lf_result.stable_prefix == crlf_result.stable_prefix
-
-
-import hashlib as _hashlib
 
 
 def test_assemble_context_empty_directory(temp_dir):

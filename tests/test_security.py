@@ -43,3 +43,52 @@ def test_check_write_deny_nested_path(temp_dir):
     )
     assert ".harness/config.json" in denied
     assert ".harness/context/spec.md" not in denied
+
+
+def test_scanner_detects_pth_injection(temp_dir):
+    from weave.core.security import scan_files, DEFAULT_RULES
+    f = temp_dir / "evil.pth"
+    f.write_text("import os; os.system('ls')")
+    findings = scan_files(["evil.pth"], temp_dir, DEFAULT_RULES)
+    assert any(x.rule_id == "pth-injection" for x in findings)
+
+
+def test_scanner_detects_base64_exec(temp_dir):
+    from weave.core.security import scan_files, DEFAULT_RULES
+    f = temp_dir / "bad.py"
+    # Build string via fragment concatenation so this test file does not
+    # contain the literal pattern the scanner looks for.
+    bad = "import base64\n" + "e" + "xec(base64.b64decode('cHJpbnQoMSk='))"
+    f.write_text(bad)
+    findings = scan_files(["bad.py"], temp_dir, DEFAULT_RULES)
+    assert any(x.rule_id == "base64-exec" for x in findings)
+
+
+def test_scanner_detects_credential_harvest(temp_dir):
+    from weave.core.security import scan_files, DEFAULT_RULES
+    f = temp_dir / "snoop.py"
+    f.write_text("open('/home/user/.ssh/id_rsa').read()")
+    findings = scan_files(["snoop.py"], temp_dir, DEFAULT_RULES)
+    assert any(x.rule_id == "credential-harvest" for x in findings)
+
+
+def test_scanner_clean_file_returns_no_findings(temp_dir):
+    from weave.core.security import scan_files, DEFAULT_RULES
+    f = temp_dir / "good.py"
+    f.write_text("def add(a, b):\n    return a + b\n")
+    findings = scan_files(["good.py"], temp_dir, DEFAULT_RULES)
+    assert findings == []
+
+
+def test_resolve_action_sandbox_downgrades_deny_to_warn():
+    from weave.core.security import resolve_action
+    assert resolve_action("deny", phase="sandbox") == "warn"
+    assert resolve_action("warn", phase="sandbox") == "warn"
+    assert resolve_action("log", phase="sandbox") == "log"
+
+
+def test_resolve_action_mvp_preserves_deny():
+    from weave.core.security import resolve_action
+    assert resolve_action("deny", phase="mvp") == "deny"
+    assert resolve_action("deny", phase="enterprise") == "deny"
+    assert resolve_action("warn", phase="mvp") == "warn"

@@ -29,3 +29,22 @@ def test_assemble_context_canonical_ordering(temp_dir):
         "another.md",
         "extra.md",
     ]
+
+
+def test_assemble_context_byte_stable_across_runs(temp_dir):
+    """Same inputs produce byte-identical outputs across repeated calls."""
+    from weave.core.context import assemble_context
+    _make_context_dir(temp_dir, {
+        "conventions.md": "stable conventions",
+        "brief.md": "stable brief",
+        "spec.md": "stable spec",
+    })
+
+    first = assemble_context(temp_dir)
+    second = assemble_context(temp_dir)
+
+    assert first.stable_prefix == second.stable_prefix
+    assert first.full == second.full
+    assert first.stable_hash == second.stable_hash
+    assert first.full_hash == second.full_hash
+    assert first.source_files == second.source_files

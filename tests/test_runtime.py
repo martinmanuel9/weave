@@ -229,3 +229,51 @@ def test_public_api_importable():
     assert callable(execute)
     assert callable(ensure_harness)
     assert RuntimeResult is not None
+
+
+def test_execute_respects_write_allow_overrides_in_mvp(temp_dir):
+    """Full pipeline: mvp phase + allow override = SUCCESS (not DENIED).
+
+    Without the allow override, writing config.json in mvp phase would
+    hard-deny (proven by test_execute_denies_write_deny_in_mvp). With
+    the override, it should succeed.
+    """
+    from weave.core.runtime import execute
+    import json as _json
+    _init_harness(temp_dir)
+
+    # Switch to mvp phase AND add config.json to write_allow_overrides
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["phase"] = "mvp"
+    config["security"] = {"write_allow_overrides": ["config.json"]}
+    config_path.write_text(_json.dumps(config))
+
+    # Adapter that writes config.json (would normally be denied in mvp)
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo "{}" > config.json\n'
+        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    import subprocess
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    (temp_dir / "seed.txt").write_text("x")
+    # Commit .harness and seed so they don't appear as untracked files_changed
+    subprocess.run(["git", "add", ".harness", "seed.txt"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    result = execute(task="write config", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.SUCCESS
+    assert result.security_result is not None
+    assert result.security_result.action_taken == "clean"
+    # No findings because the file was exempted
+    assert not any(
+        f.rule_id == "write-deny-list"
+        for f in result.security_result.findings
+    )

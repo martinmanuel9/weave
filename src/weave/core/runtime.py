@@ -165,7 +165,12 @@ def _security_scan(
     deny_patterns = (
         ctx.config.security.write_deny_list + ctx.config.security.write_deny_extras
     )
-    denied_writes = check_write_deny(files, ctx.working_dir, deny_patterns)
+    denied_writes = check_write_deny(
+        files,
+        ctx.working_dir,
+        deny_patterns,
+        allow_patterns=ctx.config.security.write_allow_overrides,
+    )
     for rel in denied_writes:
         action = resolve_action("deny", phase=ctx.phase)
         findings.append(

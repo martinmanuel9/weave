@@ -543,3 +543,37 @@ def test_prepare_populates_context_assembly(temp_dir):
     assert isinstance(ctx.context.stable_hash, str)
     assert len(ctx.context.stable_hash) == 64  # sha256 hex length
     assert isinstance(ctx.context.source_files, list)
+
+
+def test_execute_still_passes_context_string_to_invoker(temp_dir):
+    """Invoker contract preserved: it receives ctx.context.full as a string.
+
+    Uses a stub adapter that writes its received context (from the JSON
+    stdin payload) to a file, then verifies the file content matches
+    ctx.context.full produced by prepare().
+    """
+    from weave.core.runtime import execute, prepare
+    _init_harness(temp_dir)
+
+    # Stub adapter: parse stdin JSON, write "context" field to a file
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'INPUT=$(cat)\n'
+        'echo "$INPUT" | python3 -c "import sys, json; '
+        'data = json.loads(sys.stdin.read()); '
+        'open(\'received_context.txt\', \'w\').write(data[\'context\'])"\n'
+        'echo \'{"exitCode": 0, "stdout": "captured", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    # Capture the expected context by calling prepare() directly
+    expected_ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+    expected_context_str = expected_ctx.context.full
+
+    # Run execute and verify the adapter captured the same string
+    execute(task="x", working_dir=temp_dir, caller="test")
+
+    captured = (temp_dir / "received_context.txt").read_text()
+    assert captured == expected_context_str
+    assert isinstance(captured, str)

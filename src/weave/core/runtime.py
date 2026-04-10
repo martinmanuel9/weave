@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from weave.core.config import resolve_config
+from weave.core.context import assemble_context
 from weave.core.hooks import HookContext, run_hooks
 from weave.core.invoker import InvokeResult, invoke_provider
 from weave.core.policy import evaluate_policy
@@ -18,6 +19,7 @@ from weave.core.security import DEFAULT_RULES, check_write_deny, resolve_action,
 from weave.core.session import append_activity, create_session
 from weave.schemas.activity import ActivityRecord, ActivityStatus, ActivityType, HookResult
 from weave.schemas.config import ProviderConfig, WeaveConfig
+from weave.schemas.context import ContextAssembly
 from weave.schemas.policy import (
     HookResultRef,
     PolicyResult,
@@ -56,7 +58,7 @@ class PreparedContext:
     active_provider: str
     provider_config: ProviderConfig
     adapter_script: Path
-    context_text: str
+    context: ContextAssembly
     session_id: str
     working_dir: Path
     phase: str
@@ -99,16 +101,6 @@ def _snapshot_untracked(working_dir: Path) -> set[str]:
         return set()
 
 
-def _load_context(working_dir: Path) -> str:
-    """Concatenate markdown files from .harness/context/ in sorted order."""
-    parts: list[str] = []
-    context_dir = working_dir / ".harness" / "context"
-    if context_dir.exists():
-        for md in sorted(context_dir.glob("*.md")):
-            if not md.name.startswith("."):
-                parts.append(md.read_text())
-    return "\n---\n".join(parts)
-
 
 def prepare(
     task: str,
@@ -126,7 +118,7 @@ def prepare(
         raise ValueError(f"Provider '{active_provider}' not configured")
 
     adapter_script = working_dir / ".harness" / "providers" / f"{active_provider}.sh"
-    context_text = _load_context(working_dir)
+    context = assemble_context(working_dir)
     session_id = create_session()
     pre_invoke_untracked = _snapshot_untracked(working_dir)
 
@@ -135,7 +127,7 @@ def prepare(
         active_provider=active_provider,
         provider_config=provider_config,
         adapter_script=adapter_script,
-        context_text=context_text,
+        context=context,
         session_id=session_id,
         working_dir=working_dir,
         phase=config.phase,
@@ -415,7 +407,7 @@ def execute(
         adapter_script=ctx.adapter_script,
         task=ctx.task,
         working_dir=ctx.working_dir,
-        context=ctx.context_text,
+        context=ctx.context.full,
         timeout=timeout,
     )
 

@@ -528,3 +528,18 @@ def test_execute_no_revert_in_sandbox_phase(temp_dir):
 
     # files_reverted is empty
     assert result.security_result.files_reverted == []
+
+
+def test_prepare_populates_context_assembly(temp_dir):
+    """prepare() stores a ContextAssembly on PreparedContext.context."""
+    from weave.core.runtime import prepare
+    from weave.schemas.context import ContextAssembly
+    _init_harness(temp_dir)
+
+    ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    assert isinstance(ctx.context, ContextAssembly)
+    assert isinstance(ctx.context.full, str)
+    assert isinstance(ctx.context.stable_hash, str)
+    assert len(ctx.context.stable_hash) == 64  # sha256 hex length
+    assert isinstance(ctx.context.source_files, list)

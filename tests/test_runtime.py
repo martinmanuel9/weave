@@ -311,3 +311,41 @@ def test_prepare_pre_invoke_untracked_empty_for_non_git_dir(temp_dir):
     ctx = prepare(task="x", working_dir=temp_dir, caller="test")
 
     assert ctx.pre_invoke_untracked == set()
+
+
+def test_execute_reverts_untracked_file_on_hard_deny(temp_dir):
+    """mvp phase: adapter writes .env (untracked, denied) -> file is rm'd, files_reverted populated."""
+    from weave.core.runtime import execute
+    import json as _json
+    import subprocess
+    _init_harness(temp_dir)
+
+    # Switch to mvp phase so deny is hard-deny (not downgrade to flagged)
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["phase"] = "mvp"
+    config_path.write_text(_json.dumps(config))
+
+    # Adapter that writes .env (matches default deny list)
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo "SECRET=leaked" > .env\n'
+        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    # Init git and commit the harness so .env is the only new untracked file
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    result = execute(task="make env", working_dir=temp_dir, caller="test")
+
+    assert result.status == RuntimeStatus.DENIED
+    assert not (temp_dir / ".env").exists()  # reverted
+    assert result.security_result is not None
+    assert ".env" in result.security_result.files_reverted

@@ -1,6 +1,6 @@
 """Weave runtime — governed execution pipeline.
 
-Pipeline: prepare -> policy_check -> invoke -> security_scan -> cleanup -> record.
+Pipeline: prepare -> policy_check -> invoke -> security_scan -> cleanup -> revert -> record.
 Single entrypoint for all agent invocations, whether from the CLI, itzel,
 or GSD.
 """
@@ -250,6 +250,85 @@ def _cleanup(
     return chain.results
 
 
+def _revert(
+    ctx: PreparedContext,
+    invoke_result: InvokeResult | None,
+    security_result: SecurityResult | None,
+) -> None:
+    """Stage 6: if security denied, revert all files_changed from the invocation.
+
+    Per-file classification:
+      - path escapes working_dir -> skip (never mutate outside working_dir)
+      - tracked at HEAD -> git checkout HEAD -- <file>
+      - not tracked AND in ctx.pre_invoke_untracked -> skip (pre-existing user work)
+      - not tracked AND NOT in snapshot -> rm <file> (created by invocation)
+
+    Best-effort: individual file failures are logged and skipped. Populates
+    security_result.files_reverted in place with the list of successfully
+    reverted relative paths.
+
+    No-op when:
+      - invoke_result is None (invoke never ran or failed)
+      - security_result is None (scan was skipped due to non-zero exit)
+      - security_result.action_taken != "denied"
+    """
+    if invoke_result is None or security_result is None:
+        return
+    if security_result.action_taken != "denied":
+        return
+
+    working_dir = ctx.working_dir
+    working_dir_resolved = working_dir.resolve()
+    reverted: list[str] = []
+
+    for rel in invoke_result.files_changed:
+        # Skip path-escape attempts
+        try:
+            abs_path = (working_dir / rel).resolve()
+            abs_path.relative_to(working_dir_resolved)
+        except ValueError:
+            continue
+
+        # Classify: tracked at HEAD?
+        try:
+            tracked = subprocess.run(
+                ["git", "cat-file", "-e", f"HEAD:{rel}"],
+                cwd=working_dir,
+                capture_output=True,
+                timeout=10,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            # git unavailable or timed out — cannot revert this file
+            continue
+
+        if tracked.returncode == 0:
+            # Tracked at HEAD: restore content
+            try:
+                subprocess.run(
+                    ["git", "checkout", "HEAD", "--", rel],
+                    cwd=working_dir,
+                    capture_output=True,
+                    timeout=10,
+                    check=True,
+                )
+                reverted.append(rel)
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
+                continue
+        else:
+            # Not tracked at HEAD
+            if rel in ctx.pre_invoke_untracked:
+                # Pre-existing untracked user work — preserve
+                continue
+            # New file created by this invocation — delete
+            try:
+                abs_path.unlink()
+                reverted.append(rel)
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+
+    security_result.files_reverted = reverted
+
+
 def _record(
     ctx: PreparedContext,
     invoke_result: InvokeResult | None,
@@ -259,7 +338,7 @@ def _record(
     post_hook_results: list[HookResult],
     status: RuntimeStatus,
 ) -> None:
-    """Stage 6: append an enriched ActivityRecord to session JSONL."""
+    """Stage 7: append an enriched ActivityRecord to session JSONL."""
     sessions_dir = ctx.working_dir / ".harness" / "sessions"
 
     activity_status_map = {
@@ -310,7 +389,7 @@ def execute(
     requested_risk_class: RiskClass | None = None,
     timeout: int = 300,
 ) -> RuntimeResult:
-    """Run the full 6-stage pipeline and return a RuntimeResult."""
+    """Run the full 7-stage pipeline and return a RuntimeResult."""
     ctx = prepare(
         task=task,
         working_dir=working_dir,
@@ -356,6 +435,8 @@ def execute(
             status = RuntimeStatus.SUCCESS
 
     post_hook_results = _cleanup(ctx, invoke_result)
+
+    _revert(ctx, invoke_result, security_result)
 
     _record(
         ctx,

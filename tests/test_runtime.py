@@ -222,3 +222,10 @@ def test_ensure_harness_noop_when_exists(temp_dir):
     original = (temp_dir / ".harness" / "manifest.json").read_text()
     ensure_harness(temp_dir, name="different-name")
     assert (temp_dir / ".harness" / "manifest.json").read_text() == original
+
+
+def test_public_api_importable():
+    from weave.core import execute, ensure_harness, RuntimeResult
+    assert callable(execute)
+    assert callable(ensure_harness)
+    assert RuntimeResult is not None

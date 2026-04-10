@@ -69,6 +69,30 @@ def test_check_write_deny_allow_does_not_leak_to_other_files(temp_dir):
     assert denied == ["cert.pem"]
 
 
+def test_check_write_deny_allow_does_not_match_symlink_target(temp_dir):
+    """Security invariant: allow patterns must NOT match via symlink resolution.
+
+    An attacker who adds an allow entry for '.env' must not be able to
+    then create a symlink named 'innocuous.txt' pointing at '.env' and
+    have the symlink's writes pass the allow check.
+    """
+    import os
+    from weave.core.security import check_write_deny
+
+    real_env = temp_dir / ".env"
+    real_env.write_text("SECRET=x")
+    link = temp_dir / "innocuous.txt"
+    os.symlink(real_env, link)
+
+    denied = check_write_deny(
+        files_changed=["innocuous.txt"],
+        working_dir=temp_dir,
+        patterns=[".env"],
+        allow_patterns=[".env"],
+    )
+    assert denied == ["innocuous.txt"]
+
+
 def test_scanner_detects_pth_injection(temp_dir):
     from weave.core.security import scan_files, DEFAULT_RULES
     f = temp_dir / "evil.pth"

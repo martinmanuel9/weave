@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 from pathlib import Path
 
 
@@ -42,8 +43,6 @@ def _any_match(path: str, patterns: list[str]) -> bool:
         if fnmatch.fnmatch(path, pat):
             return True
     return False
-
-import re
 
 from weave.schemas.policy import SecurityFinding, SecurityRule
 

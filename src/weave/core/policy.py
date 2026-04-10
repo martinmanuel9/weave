@@ -62,11 +62,25 @@ def evaluate_policy(
         )
 
     enforcement = PHASE_ENFORCEMENT.get(phase, "warn")
-    if enforcement == "warn" and risk_class_level(effective) >= risk_class_level(
+    is_high_risk = risk_class_level(effective) >= risk_class_level(
         RiskClass.EXTERNAL_NETWORK
-    ):
+    )
+
+    if enforcement == "warn" and is_high_risk:
         warnings.append(
             f"Phase '{phase}' permits {effective.value} but this is a high-risk class"
+        )
+    elif enforcement == "deny" and is_high_risk:
+        denials.append(
+            f"Phase '{phase}' denies {effective.value} class invocations"
+        )
+        return PolicyResult(
+            allowed=False,
+            effective_risk_class=effective,
+            provider_ceiling=provider.capability,
+            requested_class=requested_class,
+            warnings=warnings,
+            denials=denials,
         )
 
     return PolicyResult(

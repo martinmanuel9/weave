@@ -60,3 +60,39 @@ def test_evaluate_policy_rejects_request_above_ceiling():
     )
     assert result.allowed is False
     assert any("ceiling" in d.lower() for d in result.denials)
+
+
+def test_evaluate_policy_mvp_denies_external_network():
+    from weave.core.policy import evaluate_policy
+    provider = ProviderConfig(command="x", capability=RiskClass.EXTERNAL_NETWORK)
+    result = evaluate_policy(
+        provider=provider,
+        requested_class=None,
+        phase="mvp",
+    )
+    assert result.allowed is False
+    assert any("denies" in d.lower() for d in result.denials)
+
+
+def test_evaluate_policy_enterprise_denies_destructive():
+    from weave.core.policy import evaluate_policy
+    provider = ProviderConfig(command="x", capability=RiskClass.DESTRUCTIVE)
+    result = evaluate_policy(
+        provider=provider,
+        requested_class=None,
+        phase="enterprise",
+    )
+    assert result.allowed is False
+
+
+def test_evaluate_policy_sandbox_warns_on_high_risk():
+    from weave.core.policy import evaluate_policy
+    provider = ProviderConfig(command="x", capability=RiskClass.EXTERNAL_NETWORK)
+    result = evaluate_policy(
+        provider=provider,
+        requested_class=None,
+        phase="sandbox",
+    )
+    assert result.allowed is True
+    assert len(result.warnings) >= 1
+    assert any("high-risk" in w.lower() for w in result.warnings)

@@ -57,7 +57,7 @@ class SecurityConfig(BaseModel):
     supply_chain_rules: dict[str, RuleOverride] = Field(default_factory=dict)
     write_deny_list: list[str] = Field(default_factory=_default_write_deny_list)
     write_deny_extras: list[str] = Field(default_factory=list)
-    write_allow_overrides: list[str] = Field(default_factory=list)  # Phase 2: not yet enforced
+    write_allow_overrides: list[str] = Field(default_factory=list)
 
 
 class WeaveConfig(BaseModel):

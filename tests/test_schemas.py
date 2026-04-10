@@ -166,3 +166,29 @@ def test_runtime_status_values():
     assert RuntimeStatus.FLAGGED == "flagged"
     assert RuntimeStatus.FAILED == "failed"
     assert RuntimeStatus.TIMEOUT == "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Governance field tests (Task 2)
+# ---------------------------------------------------------------------------
+
+def test_activity_record_governance_fields():
+    from weave.schemas.activity import ActivityRecord
+    r = ActivityRecord(
+        session_id="s1",
+        risk_class="workspace-write",
+        policy_result={"allowed": True},
+        security_findings=[{"rule_id": "pth-injection", "file": "x.pth"}],
+        approval_status="approved",
+        caller="itzel",
+        runtime_status="success",
+    )
+    assert r.risk_class == "workspace-write"
+    assert r.caller == "itzel"
+    assert r.runtime_status == "success"
+    assert len(r.security_findings) == 1
+
+
+def test_activity_status_flagged():
+    from weave.schemas.activity import ActivityStatus
+    assert ActivityStatus.flagged == "flagged"

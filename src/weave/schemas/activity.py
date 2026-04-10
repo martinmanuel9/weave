@@ -21,6 +21,7 @@ class ActivityStatus(str, Enum):
     failure = "failure"
     timeout = "timeout"
     denied = "denied"
+    flagged = "flagged"
 
 
 class HookResult(BaseModel):
@@ -44,3 +45,11 @@ class ActivityRecord(BaseModel):
     status: ActivityStatus = ActivityStatus.success
     hook_results: list[HookResult] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    # Governance fields (Phase 1)
+    risk_class: str | None = None
+    policy_result: dict | None = None
+    security_findings: list[dict] = Field(default_factory=list)
+    approval_status: str | None = None
+    caller: str | None = None
+    runtime_status: str | None = None

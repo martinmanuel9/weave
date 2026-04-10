@@ -145,3 +145,52 @@ def test_read_binding_returns_none_for_missing_file(temp_dir):
 
     result = read_binding("nonexistent", sessions_dir)
     assert result is None
+
+
+def test_validate_session_returns_empty_for_matching_binding(temp_dir):
+    """Identical inputs produce zero mismatches — session is reusable."""
+    from weave.core.runtime import prepare
+    from weave.core.session_binding import compute_binding, validate_session, write_binding
+
+    _init_harness(temp_dir)
+
+    # Create session 1, write its binding
+    ctx1 = prepare(task="x", working_dir=temp_dir, caller="test")
+    binding = compute_binding(ctx1)
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    write_binding(binding, sessions_dir)
+
+    # Prepare a new context on the SAME working_dir (nothing changed on disk).
+    # Note: ctx2 will have a different session_id (prepare always creates a
+    # fresh UUID), but the four compatibility fields should match.
+    ctx2 = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    # Validate the OLD session_id against the NEW ctx
+    mismatches = validate_session(ctx1.session_id, ctx2, sessions_dir)
+    assert mismatches == []
+
+
+def test_validate_session_detects_config_hash_mismatch(temp_dir):
+    """Changing .harness/config.json flips the config_hash — detected as mismatch."""
+    from weave.core.runtime import prepare
+    from weave.core.session_binding import compute_binding, validate_session, write_binding
+
+    _init_harness(temp_dir)
+
+    # Prepare context, write binding
+    ctx1 = prepare(task="x", working_dir=temp_dir, caller="test")
+    binding = compute_binding(ctx1)
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    write_binding(binding, sessions_dir)
+
+    # Modify the config (phase sandbox -> mvp)
+    config_path = temp_dir / ".harness" / "config.json"
+    config = json.loads(config_path.read_text())
+    config["phase"] = "mvp"
+    config_path.write_text(json.dumps(config))
+
+    # Prepare a new context against the modified config
+    ctx2 = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    mismatches = validate_session(ctx1.session_id, ctx2, sessions_dir)
+    assert mismatches == ["config_hash"]

@@ -81,3 +81,42 @@ def read_binding(session_id: str, sessions_dir: Path) -> SessionBinding | None:
     if not sidecar_path.exists():
         return None
     return SessionBinding.model_validate_json(sidecar_path.read_text())
+
+
+def validate_session(
+    session_id: str,
+    ctx,
+    sessions_dir: Path,
+) -> list[str]:
+    """Return the list of binding field names that differ between the
+    stored binding and the current PreparedContext.
+
+    Empty list means the session is reusable against ctx. Non-empty
+    means one or more invalidating inputs changed.
+
+    Raises FileNotFoundError if the binding sidecar does not exist —
+    a nonexistent binding is qualitatively different from a mismatched
+    binding. Callers should treat them as distinct signals.
+
+    The comparison checks exactly four fields: provider_name,
+    adapter_script_hash, context_stable_hash, config_hash. session_id
+    and created_at are identity fields, not compatibility fields.
+
+    The ctx parameter is untyped for the same circular-import reason
+    as compute_binding.
+    """
+    binding = read_binding(session_id, sessions_dir)
+    if binding is None:
+        raise FileNotFoundError(f"No binding sidecar for session {session_id}")
+
+    current = compute_binding(ctx)
+    mismatches: list[str] = []
+    if binding.provider_name != current.provider_name:
+        mismatches.append("provider_name")
+    if binding.adapter_script_hash != current.adapter_script_hash:
+        mismatches.append("adapter_script_hash")
+    if binding.context_stable_hash != current.context_stable_hash:
+        mismatches.append("context_stable_hash")
+    if binding.config_hash != current.config_hash:
+        mismatches.append("config_hash")
+    return mismatches

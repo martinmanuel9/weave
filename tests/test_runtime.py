@@ -487,3 +487,44 @@ def test_execute_preserves_pre_existing_untracked_on_revert(temp_dir):
     assert user_file.exists()
     assert user_file.read_text() == '{"key": "my-personal-work"}'
     assert "credentials.json" not in result.security_result.files_reverted
+
+
+def test_execute_no_revert_in_sandbox_phase(temp_dir):
+    """Sandbox phase flags findings but never reverts files.
+
+    resolve_action downgrades 'deny' to 'warn' in sandbox, so the final
+    action_taken is 'flagged' (not 'denied'). _revert is a no-op on
+    anything other than action_taken=='denied', so files stay on disk.
+    """
+    from weave.core.runtime import execute
+    import subprocess
+    _init_harness(temp_dir)  # default phase is sandbox
+
+    # Init git
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    # Adapter writes .env (flagged but not denied in sandbox)
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo "SECRET=test" > .env\n'
+        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    result = execute(task="make env", working_dir=temp_dir, caller="test")
+
+    # Sandbox downgrades deny to warn -> FLAGGED, not DENIED
+    assert result.status == RuntimeStatus.FLAGGED
+
+    # .env still exists (not reverted)
+    assert (temp_dir / ".env").exists()
+    assert (temp_dir / ".env").read_text() == "SECRET=test\n"
+
+    # files_reverted is empty
+    assert result.security_result.files_reverted == []

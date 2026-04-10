@@ -79,10 +79,12 @@ def check_write_deny(
 For each file in `files_changed`:
 
 1. Run the three existing deny-detection stages (stage 1: relative path; stage 2: resolved path after symlink resolution; stage 3: basename). If any stage matches, the file is a deny candidate.
-2. If the file is a deny candidate AND `allow_patterns` is non-empty AND the file's relative path (as written) matches any allow pattern via `fnmatch`, skip the denial.
+2. If the file is a deny candidate AND `allow_patterns` is truthy (non-None and non-empty) AND the file's relative path (as written) matches any allow pattern via `fnmatch`, skip the denial.
 3. Otherwise, add to the denied list.
 
 The allow check is applied once per file, after all three deny stages — not per stage. This means a file that matches deny via symlink resolution cannot be exempted by an allow pattern matching the resolved path; only the relative path as written counts.
+
+**`None` vs `[]` equivalence:** Both are treated as "no allow patterns" — behavior is identical to Phase 1. The signature uses `allow_patterns: list[str] | None = None` for caller convenience; internally, `None` is normalized to the empty list before matching.
 
 ### Runtime wiring
 

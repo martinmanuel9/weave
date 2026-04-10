@@ -192,3 +192,21 @@ def test_activity_record_governance_fields():
 def test_activity_status_flagged():
     from weave.schemas.activity import ActivityStatus
     assert ActivityStatus.flagged == "flagged"
+
+
+# ---------------------------------------------------------------------------
+# ContextAssembly schema tests (MAR-142)
+# ---------------------------------------------------------------------------
+
+def test_context_assembly_defaults():
+    from weave.schemas.context import ContextAssembly
+    ca = ContextAssembly(
+        stable_prefix="hello",
+        full="hello",
+        stable_hash="abc",
+        full_hash="abc",
+    )
+    assert ca.stable_prefix == "hello"
+    assert ca.volatile_task == ""  # default
+    assert ca.full == "hello"
+    assert ca.source_files == []  # default factory

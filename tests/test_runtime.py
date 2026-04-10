@@ -277,3 +277,37 @@ def test_execute_respects_write_allow_overrides_in_mvp(temp_dir):
         f.rule_id == "write-deny-list"
         for f in result.security_result.findings
     )
+
+
+def test_prepare_captures_pre_invoke_untracked(temp_dir):
+    """prepare() snapshots untracked files via git ls-files --others."""
+    from weave.core.runtime import prepare
+    import subprocess
+
+    _init_harness(temp_dir)
+
+    # Initialize git and commit the harness
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    # Create an untracked file BEFORE prepare runs
+    (temp_dir / "user_work.txt").write_text("pre-existing work")
+
+    ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    assert isinstance(ctx.pre_invoke_untracked, set)
+    assert "user_work.txt" in ctx.pre_invoke_untracked
+
+
+def test_prepare_pre_invoke_untracked_empty_for_non_git_dir(temp_dir):
+    """prepare() gracefully returns empty set when working_dir is not a git repo."""
+    from weave.core.runtime import prepare
+    _init_harness(temp_dir)
+
+    # No git init — this is not a git repo
+    ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    assert ctx.pre_invoke_untracked == set()

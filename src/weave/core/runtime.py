@@ -6,6 +6,7 @@ or GSD.
 """
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,6 +63,7 @@ class PreparedContext:
     task: str
     caller: str | None
     requested_risk_class: RiskClass | None
+    pre_invoke_untracked: set[str]
 
 
 @dataclass
@@ -72,6 +74,29 @@ class RuntimeResult:
     session_id: str
     risk_class: RiskClass
     status: RuntimeStatus
+
+
+def _snapshot_untracked(working_dir: Path) -> set[str]:
+    """Return the set of untracked files in working_dir via git.
+
+    Returns an empty set if the directory is not a git repo or git fails.
+    Used by prepare() to capture state before invoke runs, so that _revert
+    can distinguish pre-existing untracked files (preserve) from files
+    created by the invocation (delete).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return set()
+        return {line for line in result.stdout.splitlines() if line}
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return set()
 
 
 def _load_context(working_dir: Path) -> str:
@@ -103,6 +128,7 @@ def prepare(
     adapter_script = working_dir / ".harness" / "providers" / f"{active_provider}.sh"
     context_text = _load_context(working_dir)
     session_id = create_session()
+    pre_invoke_untracked = _snapshot_untracked(working_dir)
 
     return PreparedContext(
         config=config,
@@ -116,6 +142,7 @@ def prepare(
         task=task,
         caller=caller,
         requested_risk_class=requested_risk_class,
+        pre_invoke_untracked=pre_invoke_untracked,
     )
 
 

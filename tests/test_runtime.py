@@ -435,3 +435,55 @@ def test_execute_reverts_all_files_changed_not_just_flagged(temp_dir):
     assert not (temp_dir / "helper.py").exists()  # NOT flagged, but STILL reverted
     assert ".env" in result.security_result.files_reverted
     assert "helper.py" in result.security_result.files_reverted
+
+
+def test_execute_preserves_pre_existing_untracked_on_revert(temp_dir):
+    """Pre-existing untracked files that trigger denial must be preserved.
+
+    The pre_invoke_untracked snapshot protects user work: if an operator
+    has an untracked credentials.json sitting in their working tree, and
+    an invocation happens while that file is present, the revert must
+    not delete it — even though it triggers a denial (because it's in
+    files_changed from the git ls-files query and matches the deny list).
+    """
+    from weave.core.runtime import execute
+    import json as _json
+    import subprocess
+    _init_harness(temp_dir)
+
+    # mvp phase
+    harness_config_path = temp_dir / ".harness" / "config.json"
+    harness_config = _json.loads(harness_config_path.read_text())
+    harness_config["phase"] = "mvp"
+    harness_config_path.write_text(_json.dumps(harness_config))
+
+    # Init git + commit the harness
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    # Pre-existing untracked file that matches the deny list
+    user_file = temp_dir / "credentials.json"
+    user_file.write_text('{"key": "my-personal-work"}')
+
+    # Adapter is a no-op (writes nothing)
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo \'{"exitCode": 0, "stdout": "no-op", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    result = execute(task="noop", working_dir=temp_dir, caller="test")
+
+    # The pre-existing credentials.json is picked up by git ls-files --others
+    # and triggers the deny list -> status is DENIED
+    assert result.status == RuntimeStatus.DENIED
+
+    # But the file is in pre_invoke_untracked, so _revert skips it
+    assert user_file.exists()
+    assert user_file.read_text() == '{"key": "my-personal-work"}'
+    assert "credentials.json" not in result.security_result.files_reverted

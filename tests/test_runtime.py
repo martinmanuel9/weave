@@ -205,3 +205,20 @@ def test_cli_invoke_routes_through_runtime(temp_dir, monkeypatch):
     content = sessions[0].read_text()
     assert '"runtime_status"' in content
     assert '"caller":"cli"' in content or '"caller": "cli"' in content
+
+
+def test_ensure_harness_creates_when_missing(temp_dir):
+    from weave.core.runtime import ensure_harness
+    assert not (temp_dir / ".harness").exists()
+    ensure_harness(temp_dir, name="test-proj")
+    assert (temp_dir / ".harness").exists()
+    assert (temp_dir / ".harness" / "config.json").exists()
+    assert (temp_dir / ".harness" / "manifest.json").exists()
+
+
+def test_ensure_harness_noop_when_exists(temp_dir):
+    from weave.core.runtime import ensure_harness
+    _init_harness(temp_dir)
+    original = (temp_dir / ".harness" / "manifest.json").read_text()
+    ensure_harness(temp_dir, name="different-name")
+    assert (temp_dir / ".harness" / "manifest.json").read_text() == original

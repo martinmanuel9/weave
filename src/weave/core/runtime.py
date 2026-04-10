@@ -27,6 +27,27 @@ from weave.schemas.policy import (
 )
 
 
+def ensure_harness(working_dir: Path, name: str | None = None) -> bool:
+    """Ensure .harness/ exists in working_dir. Scaffolds if missing.
+
+    Returns True if a new harness was created, False if one already existed.
+    """
+    from weave.core.scaffold import scaffold_project
+
+    harness = working_dir / ".harness"
+    if harness.exists():
+        return False
+
+    project_name = name or working_dir.name
+    scaffold_project(
+        working_dir,
+        name=project_name,
+        default_provider="claude-code",
+        phase="sandbox",
+    )
+    return True
+
+
 @dataclass
 class PreparedContext:
     """Everything the pipeline needs after the prepare stage."""

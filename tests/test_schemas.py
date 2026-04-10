@@ -210,3 +210,22 @@ def test_context_assembly_defaults():
     assert ca.volatile_task == ""  # default
     assert ca.full == "hello"
     assert ca.source_files == []  # default factory
+
+
+def test_session_binding_fields():
+    from datetime import datetime, timezone
+    from weave.schemas.session_binding import SessionBinding
+
+    sb = SessionBinding(
+        session_id="test-id",
+        created_at=datetime.now(timezone.utc),
+        provider_name="claude-code",
+        adapter_script_hash="a" * 64,
+        context_stable_hash="b" * 64,
+        config_hash="c" * 64,
+    )
+    assert sb.session_id == "test-id"
+    assert sb.provider_name == "claude-code"
+    assert len(sb.adapter_script_hash) == 64
+    assert len(sb.context_stable_hash) == 64
+    assert len(sb.config_hash) == 64

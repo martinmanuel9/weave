@@ -1,0 +1,50 @@
+{
+  "version": "1",
+  "phase": "sandbox",
+  "default_provider": "claude-code",
+  "providers": {
+    "claude-code": {
+      "command": ".harness/providers/claude-code.sh",
+      "enabled": true,
+      "health_check": "which claude"
+    },
+    "codex": {
+      "command": ".harness/providers/codex.sh",
+      "enabled": true,
+      "health_check": "which codex"
+    },
+    "gemini": {
+      "command": ".harness/providers/gemini.sh",
+      "enabled": true,
+      "health_check": "which gemini"
+    },
+    "ollama": {
+      "command": ".harness/providers/ollama.sh",
+      "enabled": true,
+      "health_check": "which ollama"
+    }
+  },
+  "hooks": {
+    "pre_invoke": [],
+    "post_invoke": [],
+    "pre_commit": []
+  },
+  "sessions": {
+    "compaction": {
+      "keep_recent": 50,
+      "archive_dir": ".harness/archive"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "format": "jsonl"
+  },
+  "context": {
+    "translate_to": [
+      "claude-code",
+      "codex",
+      "gemini",
+      "ollama"
+    ]
+  }
+}

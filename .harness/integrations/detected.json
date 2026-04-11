@@ -1,0 +1,32 @@
+[
+  {
+    "name": "open-brain",
+    "type": "memory",
+    "available": false,
+    "reason": "Missing env vars: OPEN_BRAIN_URL, OPEN_BRAIN_KEY",
+    "config": {}
+  },
+  {
+    "name": "linear",
+    "type": "tracking",
+    "available": false,
+    "reason": "Missing env var: LINEAR_API_KEY",
+    "config": {}
+  },
+  {
+    "name": "notebooklm",
+    "type": "knowledge",
+    "available": true,
+    "reason": "CLI found at /home/linuxbrew/.linuxbrew/bin/notebooklm",
+    "config": {
+      "path": "/home/linuxbrew/.linuxbrew/bin/notebooklm"
+    }
+  },
+  {
+    "name": "21st-dev",
+    "type": "ui",
+    "available": false,
+    "reason": "Missing env vars: TWENTY_FIRST_DEV_API_KEY or 21ST_DEV_KEY",
+    "config": {}
+  }
+]

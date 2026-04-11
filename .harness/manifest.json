@@ -1,0 +1,16 @@
+{
+  "id": "a38a0302-62fe-4328-9ee1-e9f077f071b5",
+  "type": "project",
+  "name": "weave",
+  "status": "pending",
+  "phase": "sandbox",
+  "parent": null,
+  "children": [],
+  "provider": "claude-code",
+  "agent": null,
+  "created": "2026-04-08T14:12:05.776876Z",
+  "updated": "2026-04-08T14:12:05.776880Z",
+  "inputs": {},
+  "outputs": {},
+  "tags": []
+}

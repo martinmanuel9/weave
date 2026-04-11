@@ -760,3 +760,32 @@ def test_session_end_raises_for_missing_marker(temp_dir, monkeypatch):
     result = runner.invoke(main, ["session-end", "--session-id", "nonexistent-uuid"])
     assert result.exit_code != 0
     assert "No start marker" in result.stderr or "No start marker" in result.output
+
+
+def test_session_end_handles_non_git_directory_gracefully(temp_dir, monkeypatch):
+    """session-end in a non-git directory: no enforcement, session still recorded."""
+    from click.testing import CliRunner
+    from weave.cli import main
+    from weave.core.session import read_session_activities
+
+    _init_harness(temp_dir)
+    # NO git init — non-git directory
+
+    monkeypatch.chdir(temp_dir)
+    runner = CliRunner()
+    start_result = runner.invoke(main, ["session-start", "--task", "non-git test"])
+    assert start_result.exit_code == 0
+    session_id = start_result.stdout.strip().splitlines()[0]
+
+    # Modify some files (won't be tracked because non-git)
+    (temp_dir / "anything.txt").write_text("anything")
+
+    end_result = runner.invoke(main, ["session-end", "--session-id", session_id])
+    assert end_result.exit_code == 0  # SUCCESS, no enforcement
+
+    # JSONL recorded the session as success with empty files_changed
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    records = read_session_activities(sessions_dir, session_id)
+    final = records[-1]
+    assert final.runtime_status == "success"
+    assert final.files_changed == []

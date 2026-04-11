@@ -746,3 +746,17 @@ def test_session_end_detects_committed_denied_file_in_mvp(temp_dir, monkeypatch)
         f.get("rule_id") == "write-deny-list"
         for f in final.security_findings
     )
+
+
+def test_session_end_raises_for_missing_marker(temp_dir, monkeypatch):
+    """session-end errors clearly when no marker exists for the given session_id."""
+    from click.testing import CliRunner
+    from weave.cli import main
+
+    _init_harness(temp_dir)
+
+    monkeypatch.chdir(temp_dir)
+    runner = CliRunner()
+    result = runner.invoke(main, ["session-end", "--session-id", "nonexistent-uuid"])
+    assert result.exit_code != 0
+    assert "No start marker" in result.stderr or "No start marker" in result.output

@@ -110,3 +110,73 @@ def read_marker(session_id: str, sessions_dir: Path) -> SessionMarker | None:
     if not sidecar_path.exists():
         return None
     return SessionMarker.model_validate_json(sidecar_path.read_text())
+
+
+def compute_files_changed(
+    marker: SessionMarker,
+    working_dir: Path,
+) -> list[str]:
+    """Compute the cumulative files_changed list since the marker was written.
+
+    For git-available sessions: combines `git diff <start_sha>...HEAD`
+    (committed work since start), `git diff HEAD` (uncommitted modifications),
+    and current untracked files minus the pre_invoke_untracked snapshot
+    (new untracked).
+
+    For non-git sessions: returns []. Logged as a degraded-enforcement signal.
+
+    Best-effort: individual subprocess failures contribute nothing to the
+    result; the function continues with what it has.
+    """
+    if not marker.git_available or marker.start_head_sha is None:
+        return []
+
+    files: set[str] = set()
+
+    # 1. Committed work between start and HEAD
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", marker.start_head_sha, "HEAD"],
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            files.update(line for line in result.stdout.splitlines() if line)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    # 2. Uncommitted modifications
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            files.update(line for line in result.stdout.splitlines() if line)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    # 3. New untracked (current untracked - pre_invoke_untracked)
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=working_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            current_untracked = {
+                line for line in result.stdout.splitlines() if line
+            }
+            pre_set = set(marker.pre_invoke_untracked)
+            files.update(current_untracked - pre_set)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    return sorted(files)

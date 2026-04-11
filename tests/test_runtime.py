@@ -615,3 +615,33 @@ def test_validate_session_raises_for_missing_binding(temp_dir):
     sessions_dir = temp_dir / ".harness" / "sessions"
     with pytest.raises(FileNotFoundError, match="No binding sidecar"):
         validate_session(ctx.session_id, ctx, sessions_dir)
+
+
+def test_session_start_writes_marker_and_binding(temp_dir, monkeypatch):
+    """weave session-start writes both binding sidecar and start marker, prints session_id."""
+    import subprocess
+    from click.testing import CliRunner
+    from weave.cli import main
+
+    _init_harness(temp_dir)
+
+    # Initialize git so the marker captures git state
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    monkeypatch.chdir(temp_dir)
+    runner = CliRunner()
+    result = runner.invoke(main, ["session-start", "--task", "test plan"])
+    assert result.exit_code == 0
+
+    session_id = result.stdout.strip().splitlines()[0]
+    assert len(session_id) >= 20  # UUID-ish
+
+    # Both sidecars exist
+    binding = temp_dir / ".harness" / "sessions" / f"{session_id}.binding.json"
+    marker = temp_dir / ".harness" / "sessions" / f"{session_id}.start_marker.json"
+    assert binding.exists()
+    assert marker.exists()

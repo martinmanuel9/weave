@@ -227,6 +227,55 @@ def invoke_cmd(task, provider, timeout, risk_class):
 
 
 # ---------------------------------------------------------------------------
+# weave session-start
+# ---------------------------------------------------------------------------
+
+@main.command("session-start")
+@click.option("--task", "-t", required=True, help="Task description for the wrapped session")
+@click.option("--provider", "-p", default=None, help="Override default provider")
+@click.option("--risk-class", default=None,
+              type=click.Choice(["read-only", "workspace-write", "external-network", "destructive"]),
+              help="Request a specific risk class (must be <= provider ceiling)")
+def session_start_cmd(task, provider, risk_class):
+    """Start a wrapped session for external execution (e.g., GSD plan).
+
+    Captures pre-state, writes binding sidecar and start marker, prints
+    the session ID to stdout. The caller is responsible for running
+    `weave session-end --session-id <id>` after the wrapped work completes.
+    """
+    try:
+        from weave.core.runtime import prepare
+        from weave.core.session_marker import write_marker
+        from weave.schemas.policy import RiskClass
+
+        cwd = Path.cwd()
+        requested = RiskClass(risk_class) if risk_class else None
+
+        prepared = prepare(
+            task=task,
+            working_dir=cwd,
+            provider=provider,
+            caller="external",
+            requested_risk_class=requested,
+        )
+
+        sessions_dir = cwd / ".harness" / "sessions"
+        write_marker(
+            session_id=prepared.session_id,
+            task=task,
+            working_dir=cwd,
+            sessions_dir=sessions_dir,
+        )
+
+        # Print session_id to stdout for shell capture
+        click.echo(prepared.session_id)
+
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # weave translate
 # ---------------------------------------------------------------------------
 

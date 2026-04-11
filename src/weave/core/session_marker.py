@@ -118,10 +118,11 @@ def compute_files_changed(
 ) -> list[str]:
     """Compute the cumulative files_changed list since the marker was written.
 
-    For git-available sessions: combines `git diff <start_sha>...HEAD`
-    (committed work since start), `git diff HEAD` (uncommitted modifications),
-    and current untracked files minus the pre_invoke_untracked snapshot
-    (new untracked).
+    For git-available sessions: combines `git diff <start_sha> HEAD`
+    (two-dot diff showing files changed between start SHA and current HEAD —
+    all committed work done during the wrapped execution), `git diff HEAD`
+    (uncommitted modifications), and current untracked files minus the
+    pre_invoke_untracked snapshot (new untracked).
 
     For non-git sessions: returns []. Logged as a degraded-enforcement signal.
 

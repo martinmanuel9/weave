@@ -229,3 +229,23 @@ def test_session_binding_fields():
     assert len(sb.adapter_script_hash) == 64
     assert len(sb.context_stable_hash) == 64
     assert len(sb.config_hash) == 64
+
+
+def test_session_marker_fields():
+    from datetime import datetime, timezone
+    from weave.schemas.session_marker import SessionMarker
+
+    sm = SessionMarker(
+        session_id="test-id",
+        start_time=datetime.now(timezone.utc),
+        git_available=True,
+        start_head_sha="a" * 40,
+        pre_invoke_untracked=["existing.txt"],
+        task="execute plan 03-01",
+        working_dir="/tmp/test",
+    )
+    assert sm.session_id == "test-id"
+    assert sm.git_available is True
+    assert sm.start_head_sha == "a" * 40
+    assert sm.pre_invoke_untracked == ["existing.txt"]
+    assert sm.task == "execute plan 03-01"

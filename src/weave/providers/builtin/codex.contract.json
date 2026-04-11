@@ -1,0 +1,14 @@
+{
+  "contract_version": "1",
+  "name": "codex",
+  "display_name": "Codex CLI",
+  "adapter": "codex.sh",
+  "adapter_runtime": "bash",
+  "capability_ceiling": "workspace-write",
+  "protocol": {
+    "request_schema": "weave.request.v1",
+    "response_schema": "weave.response.v1"
+  },
+  "declared_features": ["tool-use", "file-edit", "shell-exec"],
+  "health_check": "codex --version"
+}

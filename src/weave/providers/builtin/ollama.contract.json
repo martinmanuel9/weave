@@ -1,0 +1,14 @@
+{
+  "contract_version": "1",
+  "name": "ollama",
+  "display_name": "Ollama",
+  "adapter": "ollama.sh",
+  "adapter_runtime": "bash",
+  "capability_ceiling": "read-only",
+  "protocol": {
+    "request_schema": "weave.request.v1",
+    "response_schema": "weave.response.v1"
+  },
+  "declared_features": ["structured-output"],
+  "health_check": "ollama --version"
+}

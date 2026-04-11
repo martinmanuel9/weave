@@ -682,3 +682,67 @@ def test_session_end_completes_clean_session(temp_dir, monkeypatch):
     final = records[-1]
     assert final.runtime_status == "success"
     assert final.security_findings == []
+
+
+def test_session_end_detects_committed_denied_file_in_mvp(temp_dir, monkeypatch):
+    """In mvp phase, a committed .env between session-start and session-end is denied.
+
+    NOTE: The file is NOT reverted in the session-wrap flow because HEAD has
+    advanced during the wrapped execution. MAR-139's _revert uses
+    `git checkout HEAD -- <file>` for tracked files, which would restore the
+    committed (leaked) content. This is a known gap — the revert semantics
+    were designed for the weave invoke flow where HEAD is the pre-invocation
+    state. A future task can extend _revert to handle the session-wrap case.
+
+    For now, this test verifies the denial is detected and recorded even
+    though physical revert is incomplete.
+    """
+    import json as _json
+    import subprocess
+    from click.testing import CliRunner
+    from weave.cli import main
+    from weave.core.session import read_session_activities
+
+    _init_harness(temp_dir)
+
+    # Switch to mvp phase
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["phase"] = "mvp"
+    config_path.write_text(_json.dumps(config))
+
+    # Add .gitignore BEFORE init so .harness/ sidecars are ignored
+    (temp_dir / ".gitignore").write_text(".harness/\n")
+
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    monkeypatch.chdir(temp_dir)
+    runner = CliRunner()
+    start_result = runner.invoke(main, ["session-start", "--task", "denied test"])
+    assert start_result.exit_code == 0
+    session_id = start_result.stdout.strip().splitlines()[0]
+
+    # Simulate the wrapped subagent: commit a .env file (matches default deny list)
+    (temp_dir / ".env").write_text("SECRET=leaked")
+    subprocess.run(["git", "add", ".env"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "leak secret"], cwd=temp_dir, check=True)
+
+    end_result = runner.invoke(main, ["session-end", "--session-id", session_id])
+    assert end_result.exit_code == 2  # DENIED
+
+    # NOTE: The file is still present due to the MAR-139 gap documented above.
+    # Physical revert is incomplete when HEAD advances during wrapped execution.
+
+    # JSONL records the denial
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    records = read_session_activities(sessions_dir, session_id)
+    final = records[-1]
+    assert final.runtime_status == "denied"
+    assert any(
+        f.get("rule_id") == "write-deny-list"
+        for f in final.security_findings
+    )

@@ -276,6 +276,128 @@ def session_start_cmd(task, provider, risk_class):
 
 
 # ---------------------------------------------------------------------------
+# weave session-end
+# ---------------------------------------------------------------------------
+
+@main.command("session-end")
+@click.option("--session-id", required=True, help="Session ID returned by session-start")
+def session_end_cmd(session_id):
+    """Finalize a wrapped session: scan changed files, run security policy, record outcome."""
+    try:
+        from weave.core.config import resolve_config
+        from weave.core.context import assemble_context
+        from weave.core.invoker import InvokeResult
+        from weave.core.policy import evaluate_policy
+        from weave.core.runtime import (
+            PreparedContext,
+            _record,
+            _revert,
+            _security_scan,
+        )
+        from weave.core.session_marker import compute_files_changed, read_marker
+        from weave.schemas.policy import RuntimeStatus
+
+        cwd = Path.cwd()
+        sessions_dir = cwd / ".harness" / "sessions"
+
+        # Load the marker
+        marker = read_marker(session_id, sessions_dir)
+        if marker is None:
+            click.echo(
+                f"Error: No start marker for session {session_id}. "
+                f"Did you run 'weave session-start' first?",
+                err=True,
+            )
+            sys.exit(1)
+
+        # Reconstruct a PreparedContext directly (no second prepare() call)
+        config = resolve_config(cwd)
+        provider_name = config.default_provider
+        provider_config = config.providers.get(provider_name)
+        if provider_config is None:
+            click.echo(f"Error: Provider '{provider_name}' not configured", err=True)
+            sys.exit(1)
+
+        adapter_script = cwd / ".harness" / "providers" / f"{provider_name}.sh"
+        context = assemble_context(cwd)
+
+        ctx = PreparedContext(
+            config=config,
+            active_provider=provider_name,
+            provider_config=provider_config,
+            adapter_script=adapter_script,
+            context=context,
+            session_id=session_id,
+            working_dir=cwd,
+            phase=config.phase,
+            task=marker.task,
+            caller="external",
+            requested_risk_class=None,
+            pre_invoke_untracked=set(marker.pre_invoke_untracked),
+        )
+
+        # Compute the cumulative files_changed
+        files_changed = compute_files_changed(marker, cwd)
+
+        # Construct synthetic InvokeResult
+        fake_invoke_result = InvokeResult(
+            exit_code=0,
+            stdout="",
+            stderr="",
+            structured=None,
+            duration=0.0,
+            files_changed=files_changed,
+        )
+
+        # Run security scan
+        security_result = _security_scan(ctx, fake_invoke_result)
+
+        # Determine status
+        if security_result.action_taken == "denied":
+            status = RuntimeStatus.DENIED
+        elif security_result.action_taken == "flagged":
+            status = RuntimeStatus.FLAGGED
+        else:
+            status = RuntimeStatus.SUCCESS
+
+        # Run revert (no-op unless action_taken == "denied" and phase is mvp/enterprise)
+        _revert(ctx, fake_invoke_result, security_result)
+
+        # Re-evaluate policy at end-time using current config
+        policy_result = evaluate_policy(
+            provider=provider_config,
+            requested_class=None,
+            phase=ctx.phase,
+        )
+
+        # Record the final activity
+        _record(
+            ctx=ctx,
+            invoke_result=fake_invoke_result,
+            policy_result=policy_result,
+            security_result=security_result,
+            pre_hook_results=[],
+            post_hook_results=[],
+            status=status,
+        )
+
+        # Print outcome to stdout
+        click.echo(
+            f"session {session_id} | status {status.value} | "
+            f"{len(files_changed)} file(s) changed"
+        )
+
+        # Exit code mapping matches weave invoke
+        if status == RuntimeStatus.DENIED:
+            sys.exit(2)
+        # SUCCESS and FLAGGED both exit 0
+
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # weave translate
 # ---------------------------------------------------------------------------
 

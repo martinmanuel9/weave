@@ -645,3 +645,40 @@ def test_session_start_writes_marker_and_binding(temp_dir, monkeypatch):
     marker = temp_dir / ".harness" / "sessions" / f"{session_id}.start_marker.json"
     assert binding.exists()
     assert marker.exists()
+
+
+def test_session_end_completes_clean_session(temp_dir, monkeypatch):
+    """session-start + session-end on a clean working tree → SUCCESS, empty findings."""
+    import subprocess
+    from click.testing import CliRunner
+    from weave.cli import main
+    from weave.core.session import read_session_activities
+
+    _init_harness(temp_dir)
+
+    # Add .gitignore so .harness/ sidecars don't show up as untracked
+    (temp_dir / ".gitignore").write_text(".harness/\n")
+
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    monkeypatch.chdir(temp_dir)
+    runner = CliRunner()
+    start_result = runner.invoke(main, ["session-start", "--task", "clean test"])
+    assert start_result.exit_code == 0
+    session_id = start_result.stdout.strip().splitlines()[0]
+
+    # Do nothing — clean working tree
+    end_result = runner.invoke(main, ["session-end", "--session-id", session_id])
+    assert end_result.exit_code == 0
+
+    # JSONL contains a final ActivityRecord with success status
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    records = read_session_activities(sessions_dir, session_id)
+    assert len(records) >= 1
+    final = records[-1]
+    assert final.runtime_status == "success"
+    assert final.security_findings == []

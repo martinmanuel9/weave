@@ -240,7 +240,7 @@ Behavior:
    - `denied` → `RuntimeStatus.DENIED`
 7. Re-evaluates policy at end-time via `evaluate_policy(provider_config, requested_class=None, phase=ctx.phase)`. The session binding from session-start captured the start-time config hash; future audits can detect drift by comparing the binding's `config_hash` against the recorded `policy_result`.
 8. Calls `_revert(ctx, fake_invoke_result, security_result)` — runs only on hard-deny in mvp/enterprise (MAR-139). Uses the marker's `pre_invoke_untracked` to protect pre-existing user work.
-9. Writes a final ActivityRecord via `_record(...)` with the complete governance picture.
+9. Writes a final ActivityRecord via `_record(...)` with the complete governance picture. The `pre_hook_results` and `post_hook_results` arguments are passed as empty lists — no hooks ran in the wrapped flow because session-end never calls `_policy_check` (which runs pre-invoke hooks) or `_cleanup` (which runs post-invoke hooks). Future work could add session-level hooks if operators need them.
 10. Prints status to stdout, exits with the same exit code mapping as `weave invoke`:
     - DENIED → 2
     - FLAGGED → 0 (sandbox warning, not a failure)

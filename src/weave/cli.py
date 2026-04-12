@@ -550,19 +550,30 @@ def status_cmd():
 
         # Count sessions and gather recent activities
         sessions_dir = cwd / ".harness" / "sessions"
-        session_count = 0
+        active_count = 0
         recent_activities = []
+        history_entries: list[dict] = []
 
         if sessions_dir.exists():
-            session_files = sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
-            session_count = len(session_files)
+            session_files = sorted(
+                (p for p in sessions_dir.glob("*.jsonl") if p.name != "session_history.jsonl"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            active_count = len(session_files)
             for sf in session_files[:5]:
                 session_id = sf.stem
-                acts = read_session_activities(sessions_dir, session_id)
-                recent_activities.extend(acts)
+                try:
+                    acts = read_session_activities(sessions_dir, session_id)
+                    recent_activities.extend(acts)
+                except Exception:
+                    pass
             # Sort by timestamp descending and take 10
             recent_activities.sort(key=lambda a: a.timestamp, reverse=True)
             recent_activities = recent_activities[:10]
+
+            from weave.core.compaction import read_session_history
+            history_entries = read_session_history(sessions_dir, max_entries=10)
 
         # Print status
         click.echo(f"Project:  {manifest.name}")
@@ -570,7 +581,8 @@ def status_cmd():
         click.echo(f"Status:   {manifest.status.value}")
         click.echo(f"Provider: {config.default_provider}")
         click.echo(f"Enabled providers: {', '.join(enabled_providers) if enabled_providers else 'none'}")
-        click.echo(f"Sessions: {session_count}")
+        compacted_count = len(history_entries) if sessions_dir.exists() else 0
+        click.echo(f"Sessions: {active_count} active, {compacted_count} compacted")
 
         if recent_activities:
             click.echo("\nRecent activity:")
@@ -580,6 +592,22 @@ def status_cmd():
                 click.echo(f"  [{ts}] {act.provider or 'unknown'} — {act.status.value} — {task_preview}")
         else:
             click.echo("\nNo activity recorded yet.")
+
+        if sessions_dir.exists():
+            if not history_entries:
+                from weave.core.compaction import read_session_history
+                history_entries = read_session_history(sessions_dir, max_entries=10)
+            if history_entries:
+                click.echo("\nSession history (compacted):")
+                for entry in history_entries:
+                    started = entry.get("started", "")
+                    date_str = started[:10] if started else "unknown"
+                    sid = entry.get("session_id", "unknown")[:20]
+                    provider = entry.get("provider") or "unknown"
+                    count = entry.get("invocation_count", 0)
+                    dur_s = (entry.get("total_duration_ms", 0) or 0) / 1000
+                    status = entry.get("final_status", "unknown")
+                    click.echo(f"  [{date_str}] {sid} — {provider} — {count} invocations — {dur_s:.1f}s — {status}")
 
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)

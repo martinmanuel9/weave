@@ -480,3 +480,48 @@ def test_read_session_history_missing_ledger(tmp_path):
     sessions_dir.mkdir(parents=True)
     entries = read_session_history(sessions_dir)
     assert entries == []
+
+
+def test_status_cmd_shows_session_history(tmp_path):
+    """weave status includes compacted session history from the ledger."""
+    from click.testing import CliRunner
+    from weave.cli import main
+
+    harness = tmp_path / ".harness"
+    for sub in ["context", "hooks", "providers", "sessions", "integrations"]:
+        (harness / sub).mkdir(parents=True)
+
+    (harness / "manifest.json").write_text(json.dumps({
+        "id": "t", "type": "project", "name": "statustest", "status": "active",
+        "phase": "sandbox", "parent": None, "children": [],
+        "provider": "claude-code", "agent": None,
+        "created": "2026-04-11T00:00:00Z", "updated": "2026-04-11T00:00:00Z",
+        "inputs": {}, "outputs": {}, "tags": [],
+    }))
+    (harness / "config.json").write_text(json.dumps({
+        "version": "1", "phase": "sandbox", "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude", "enabled": True}},
+    }))
+
+    sessions_dir = harness / "sessions"
+    (sessions_dir / "session_history.jsonl").write_text(
+        '{"session_id": "sess-compacted", "provider": "claude-code", '
+        '"started": "2026-04-10T10:00:00+00:00", "ended": "2026-04-10T11:00:00+00:00", '
+        '"invocation_count": 5, "total_duration_ms": 30000.0, '
+        '"final_status": "success", "files_changed_count": 3, '
+        '"task_snippet": "build feature"}\n'
+    )
+    (sessions_dir / "active-sess.jsonl").write_text('{"dummy": true}\n')
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        import os
+        os.chdir(tmp_path)
+        result = runner.invoke(main, ["status"])
+
+    assert result.exit_code == 0
+    assert "1 active" in result.output
+    assert "1 compacted" in result.output
+    assert "Session history" in result.output
+    assert "sess-compacted" in result.output
+    assert "5 invocations" in result.output

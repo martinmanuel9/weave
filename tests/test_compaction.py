@@ -218,3 +218,207 @@ def test_append_activity_with_compact_threshold(tmp_path):
     first = json.loads(lines[0])
     assert first["task"] == "compaction_summary"
     assert first["metadata"]["compacted_count"] == 1
+
+
+import os
+import time
+
+
+def _create_session_files(
+    sessions_dir: Path,
+    session_id: str,
+    records: list[ActivityRecord] | None = None,
+    with_binding: bool = True,
+    with_marker: bool = True,
+    mtime_offset: float = 0.0,
+) -> None:
+    """Create a full set of session files (JSONL + optional sidecars)."""
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    recs = records or [_make_record(session_id=session_id)]
+    log_file = sessions_dir / f"{session_id}.jsonl"
+    with log_file.open("w") as f:
+        for r in recs:
+            f.write(r.model_dump_json() + "\n")
+    if with_binding:
+        (sessions_dir / f"{session_id}.binding.json").write_text('{"binding": true}')
+    if with_marker:
+        (sessions_dir / f"{session_id}.start_marker.json").write_text('{"marker": true}')
+    if mtime_offset != 0.0:
+        now = time.time()
+        target = now + mtime_offset
+        os.utime(log_file, (target, target))
+
+
+def test_lifecycle_noop_when_under_retention(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    for i in range(3):
+        _create_session_files(sessions_dir, f"sess-{i}")
+    result = compact_sessions(sessions_dir, sessions_to_keep=50)
+    assert result.kept == 3
+    assert result.removed == 0
+
+
+def test_lifecycle_removes_oldest_sessions(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    for i in range(5):
+        _create_session_files(sessions_dir, f"sess-{i}", mtime_offset=-500 + i * 100)
+
+    result = compact_sessions(sessions_dir, sessions_to_keep=2)
+    assert result.kept == 2
+    assert result.removed == 3
+    remaining = sorted(p.stem for p in sessions_dir.glob("*.jsonl") if p.name != "session_history.jsonl")
+    assert len(remaining) == 2
+
+
+def test_lifecycle_writes_ledger_entry(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    _create_session_files(
+        sessions_dir, "old-sess",
+        records=[
+            _make_record(
+                session_id="old-sess",
+                provider="claude-code",
+                task="build the thing",
+                duration=1000.0,
+                status=ActivityStatus.success,
+                files_changed=["a.py"],
+                timestamp=datetime(2026, 4, 11, 10, 0, tzinfo=timezone.utc),
+            ),
+        ],
+        mtime_offset=-1000,
+    )
+    _create_session_files(sessions_dir, "new-sess", mtime_offset=0)
+
+    compact_sessions(sessions_dir, sessions_to_keep=1)
+
+    ledger = sessions_dir / "session_history.jsonl"
+    assert ledger.exists()
+    entries = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["session_id"] == "old-sess"
+    assert entry["provider"] == "claude-code"
+    assert entry["invocation_count"] == 1
+    assert entry["total_duration_ms"] == 1000.0
+    assert entry["final_status"] == "success"
+    assert entry["files_changed_count"] == 1
+    assert "build the thing" in entry["task_snippet"]
+
+
+def test_lifecycle_ledger_entry_includes_compaction_summary(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    summary_record = _make_record(
+        session_id="old-sess",
+        record_type=ActivityType.system,
+        task="compaction_summary",
+        metadata={
+            "compacted_count": 10,
+            "total_duration_ms": 5000.0,
+            "earliest_timestamp": "2026-04-10T08:00:00+00:00",
+            "latest_timestamp": "2026-04-10T20:00:00+00:00",
+            "providers_used": ["claude-code"],
+            "status_counts": {"success": 10},
+            "total_files_changed": 20,
+            "unique_files_changed": [],
+        },
+    )
+    tail_record = _make_record(
+        session_id="old-sess", duration=100.0, files_changed=["x.py"],
+    )
+    _create_session_files(
+        sessions_dir, "old-sess",
+        records=[summary_record, tail_record],
+        mtime_offset=-1000,
+    )
+    _create_session_files(sessions_dir, "new-sess", mtime_offset=0)
+
+    compact_sessions(sessions_dir, sessions_to_keep=1)
+
+    ledger = sessions_dir / "session_history.jsonl"
+    entries = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+    entry = entries[0]
+    assert entry["invocation_count"] == 11
+    assert entry["total_duration_ms"] == 5100.0
+
+
+def test_lifecycle_deletes_all_sidecar_files(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    _create_session_files(sessions_dir, "old-sess", mtime_offset=-1000)
+    _create_session_files(sessions_dir, "new-sess", mtime_offset=0)
+
+    compact_sessions(sessions_dir, sessions_to_keep=1)
+    assert not (sessions_dir / "old-sess.jsonl").exists()
+    assert not (sessions_dir / "old-sess.binding.json").exists()
+    assert not (sessions_dir / "old-sess.start_marker.json").exists()
+
+
+def test_lifecycle_skips_missing_sidecars(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    _create_session_files(
+        sessions_dir, "old-sess",
+        with_binding=False, with_marker=False,
+        mtime_offset=-1000,
+    )
+    _create_session_files(sessions_dir, "new-sess", mtime_offset=0)
+
+    result = compact_sessions(sessions_dir, sessions_to_keep=1)
+    assert result.removed == 1
+    assert len(result.errors) == 0
+
+
+def test_lifecycle_dry_run_deletes_nothing(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    _create_session_files(sessions_dir, "old-sess", mtime_offset=-1000)
+    _create_session_files(sessions_dir, "new-sess", mtime_offset=0)
+
+    result = compact_sessions(sessions_dir, sessions_to_keep=1, dry_run=True)
+    assert result.removed == 1
+    assert (sessions_dir / "old-sess.jsonl").exists()
+    assert not (sessions_dir / "session_history.jsonl").exists()
+
+
+def test_lifecycle_excludes_ledger_from_session_count(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    _create_session_files(sessions_dir, "sess-1", mtime_offset=-1000)
+    _create_session_files(sessions_dir, "sess-2", mtime_offset=0)
+    (sessions_dir / "session_history.jsonl").write_text('{"old": true}\n')
+
+    result = compact_sessions(sessions_dir, sessions_to_keep=2)
+    assert result.kept == 2
+    assert result.removed == 0
+
+
+def test_lifecycle_handles_corrupt_session(tmp_path):
+    from weave.core.compaction import compact_sessions
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True)
+    (sessions_dir / "corrupt.jsonl").write_text("not valid json at all\n")
+    os.utime(sessions_dir / "corrupt.jsonl", (time.time() - 1000, time.time() - 1000))
+    _create_session_files(sessions_dir, "good-sess", mtime_offset=0)
+
+    result = compact_sessions(sessions_dir, sessions_to_keep=1)
+    assert result.removed == 1
+    assert len(result.errors) == 0
+    ledger = sessions_dir / "session_history.jsonl"
+    entries = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+    assert len(entries) == 1
+    assert entries[0]["session_id"] == "corrupt"
+    assert entries[0]["invocation_count"] == 0
+    assert entries[0]["final_status"] == "unknown"

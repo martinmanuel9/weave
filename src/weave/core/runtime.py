@@ -148,8 +148,36 @@ def prepare(
 
 def _policy_check(ctx: PreparedContext) -> tuple[PolicyResult, list[HookResult]]:
     """Stage 2: evaluate policy and run pre-invoke hooks."""
+    from weave.core.registry import get_registry
+    from weave.schemas.provider_contract import (
+        AdapterRuntime,
+        ProviderContract,
+        ProviderProtocol,
+    )
+
+    registry = get_registry()
+    registry.load(ctx.working_dir)
+    if registry.has(ctx.active_provider):
+        contract = registry.get(ctx.active_provider)
+    else:
+        # Transitional: registry not yet wired into prepare(). Synthesize
+        # a minimal contract from ProviderConfig.capability (the shim).
+        # Task 8 removes this branch and resolves the contract in prepare().
+        contract = ProviderContract(
+            name=ctx.active_provider,
+            display_name=ctx.active_provider,
+            adapter=str(ctx.adapter_script),
+            adapter_runtime=AdapterRuntime.BASH,
+            capability_ceiling=ctx.provider_config.capability,
+            protocol=ProviderProtocol(
+                request_schema="weave.request.v1",
+                response_schema="weave.response.v1",
+            ),
+        )
+
     policy = evaluate_policy(
-        provider=ctx.provider_config,
+        contract=contract,
+        provider_config=ctx.provider_config,
         requested_class=ctx.requested_risk_class,
         phase=ctx.phase,
     )

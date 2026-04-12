@@ -66,6 +66,7 @@ class SecurityConfig(BaseModel):
     write_deny_list: list[str] = Field(default_factory=_default_write_deny_list)
     write_deny_extras: list[str] = Field(default_factory=list)
     write_allow_overrides: list[str] = Field(default_factory=list)
+    scanner_allowlist: list[str] = Field(default_factory=list)
 
 
 class SandboxConfig(BaseModel):

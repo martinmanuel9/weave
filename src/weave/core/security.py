@@ -135,10 +135,16 @@ def scan_files(
     files_changed: list[str],
     working_dir: Path,
     rules: list[SecurityRule],
+    allowlist: list[str] | None = None,
 ) -> list[SecurityFinding]:
-    """Scan each file in files_changed against each rule's regex."""
+    """Scan each file in files_changed against each rule's regex.
+
+    Files matching any pattern in `allowlist` are skipped entirely.
+    """
     findings: list[SecurityFinding] = []
     for rel in files_changed:
+        if allowlist and _any_match(rel, allowlist):
+            continue
         abs_path = working_dir / rel
         if not abs_path.is_file():
             continue

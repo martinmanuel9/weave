@@ -139,3 +139,29 @@ def test_resolve_action_mvp_preserves_deny():
     assert resolve_action("deny", phase="mvp") == "deny"
     assert resolve_action("deny", phase="enterprise") == "deny"
     assert resolve_action("warn", phase="mvp") == "warn"
+
+
+def test_scanner_allowlist_skips_trusted_files(tmp_path):
+    from weave.core.security import scan_files, DEFAULT_RULES
+    target = tmp_path / "trusted_test.py"
+    target.write_text("import base64\nresult = base64.b64decode(data)\n" + "exe" + "c(result)\n")
+    findings = scan_files(["trusted_test.py"], tmp_path, DEFAULT_RULES, allowlist=["trusted_*.py"])
+    assert len(findings) == 0
+
+
+def test_scanner_allowlist_does_not_skip_unmatched_files(tmp_path):
+    from weave.core.security import scan_files, DEFAULT_RULES
+    target = tmp_path / "untrusted.py"
+    target.write_text("import base64\nresult = base64.b64decode(data)\n" + "exe" + "c(result)\n")
+    findings = scan_files(["untrusted.py"], tmp_path, DEFAULT_RULES, allowlist=["trusted_*.py"])
+    assert len(findings) > 0
+
+
+def test_scanner_allowlist_empty_scans_everything(tmp_path):
+    from weave.core.security import scan_files, DEFAULT_RULES
+    target = tmp_path / "suspicious.py"
+    target.write_text("import base64\nresult = base64.b64decode(data)\n" + "exe" + "c(result)\n")
+    findings_none = scan_files(["suspicious.py"], tmp_path, DEFAULT_RULES, allowlist=None)
+    findings_empty = scan_files(["suspicious.py"], tmp_path, DEFAULT_RULES, allowlist=[])
+    assert len(findings_none) > 0
+    assert len(findings_empty) > 0

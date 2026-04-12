@@ -326,7 +326,10 @@ def _security_scan(
             )
         )
 
-    scan_findings = scan_files(files, ctx.working_dir, DEFAULT_RULES)
+    scan_findings = scan_files(
+        files, ctx.working_dir, DEFAULT_RULES,
+        allowlist=ctx.config.security.scanner_allowlist,
+    )
     for f in scan_findings:
         override = ctx.config.security.supply_chain_rules.get(f.rule_id)
         base_action = override.action if override else f.action_taken

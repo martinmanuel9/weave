@@ -59,6 +59,29 @@ class SecurityConfig(BaseModel):
     write_allow_overrides: list[str] = Field(default_factory=list)
 
 
+class SandboxConfig(BaseModel):
+    strip_env_patterns: list[str] = Field(default_factory=lambda: [
+        "AWS_*", "AZURE_*", "GCP_*", "GOOGLE_*",
+        "GITHUB_TOKEN", "GITLAB_TOKEN", "NPM_TOKEN",
+        "PYPI_TOKEN", "SSH_AUTH_SOCK", "GPG_*",
+    ])
+    safe_path_dirs: list[str] = Field(default_factory=lambda: [
+        "/usr/bin", "/bin", "/usr/local/bin",
+    ])
+    extra_write_deny: list[str] = Field(default_factory=lambda: [
+        ".git/hooks/*",
+        "Makefile",
+        "Dockerfile",
+        "docker-compose*",
+        "*.sh",
+        ".github/workflows/*",
+        "package.json",
+        "pyproject.toml",
+        "Cargo.toml",
+    ])
+    restrict_home: bool = True
+
+
 class WeaveConfig(BaseModel):
     version: str = "1"
     phase: str = "sandbox"
@@ -69,6 +92,7 @@ class WeaveConfig(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
 
 
 def create_default_config(default_provider: str = "claude-code") -> WeaveConfig:

@@ -11,7 +11,7 @@ from weave.schemas.provider_contract import ProviderContract
 
 
 PHASE_ENFORCEMENT = {
-    "sandbox": "warn",
+    "sandbox": "restrict",
     "mvp": "deny",
     "enterprise": "deny",
 }
@@ -81,7 +81,24 @@ def evaluate_policy(
     enforcement = PHASE_ENFORCEMENT.get(phase, "warn")
     is_high_risk = risk_class_level(effective) >= risk_class_level(RiskClass.EXTERNAL_NETWORK)
 
-    if enforcement == "warn" and is_high_risk:
+    if enforcement == "restrict":
+        if is_high_risk:
+            denials.append(
+                f"Phase '{phase}' restricts {effective.value} class invocations"
+            )
+            return PolicyResult(
+                allowed=False,
+                effective_risk_class=effective,
+                provider_ceiling=ceiling,
+                requested_class=requested_class,
+                warnings=warnings,
+                denials=denials,
+            )
+        elif risk_class_level(effective) >= risk_class_level(RiskClass.WORKSPACE_WRITE):
+            warnings.append(
+                f"Phase '{phase}' applies sandbox restrictions to {effective.value}"
+            )
+    elif enforcement == "warn" and is_high_risk:
         warnings.append(
             f"Phase '{phase}' permits {effective.value} but this is a high-risk class"
         )

@@ -59,18 +59,18 @@ def test_resolve_risk_class_rejects_request_above_effective_ceiling():
         )
 
 
-def test_evaluate_policy_sandbox_phase_always_allows_within_ceiling():
+def test_evaluate_policy_mvp_phase_allows_within_safe_ceiling():
     from weave.core.policy import evaluate_policy
-    contract = make_contract(capability_ceiling=RiskClass.DESTRUCTIVE)
+    contract = make_contract(capability_ceiling=RiskClass.WORKSPACE_WRITE)
     result = evaluate_policy(
         contract=contract,
         provider_config=ProviderConfig(command="x"),
-        requested_class=RiskClass.DESTRUCTIVE,
-        phase="sandbox",
+        requested_class=RiskClass.WORKSPACE_WRITE,
+        phase="mvp",
     )
     assert result.allowed is True
-    assert result.effective_risk_class == RiskClass.DESTRUCTIVE
-    assert result.provider_ceiling == RiskClass.DESTRUCTIVE
+    assert result.effective_risk_class == RiskClass.WORKSPACE_WRITE
+    assert result.provider_ceiling == RiskClass.WORKSPACE_WRITE
 
 
 def test_evaluate_policy_mvp_phase_allows_safe_class():
@@ -124,7 +124,7 @@ def test_evaluate_policy_enterprise_denies_destructive():
     assert result.allowed is False
 
 
-def test_evaluate_policy_sandbox_warns_on_high_risk():
+def test_evaluate_policy_sandbox_restricts_high_risk():
     from weave.core.policy import evaluate_policy
     contract = make_contract(capability_ceiling=RiskClass.EXTERNAL_NETWORK)
     result = evaluate_policy(
@@ -133,9 +133,8 @@ def test_evaluate_policy_sandbox_warns_on_high_risk():
         requested_class=None,
         phase="sandbox",
     )
-    assert result.allowed is True
-    assert len(result.warnings) >= 1
-    assert any("high-risk" in w.lower() for w in result.warnings)
+    assert result.allowed is False
+    assert any("restricts" in d.lower() for d in result.denials)
 
 
 def test_evaluate_policy_provider_ceiling_from_contract_not_config():

@@ -68,3 +68,83 @@ def test_with_volatile_full_hash_differs_from_stable_hash():
     updated = assembly.with_volatile("volatile content")
     assert updated.full_hash != updated.stable_hash
     assert updated.stable_hash == assembly.stable_hash
+
+
+def _init_git_repo(tmp_path: Path) -> Path:
+    """Initialize a git repo with one committed file."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    (tmp_path / "init.txt").write_text("initial\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+def test_git_diff_section_shows_modified_and_new_files(tmp_path):
+    from weave.core.volatile import _git_diff_section
+    _init_git_repo(tmp_path)
+    (tmp_path / "init.txt").write_text("changed\n")
+    (tmp_path / "new_file.py").write_text("print('hi')\n")
+    result = _git_diff_section(tmp_path, max_files=30)
+    assert "## Recent Git State" in result
+    assert "init.txt" in result
+    assert "modified" in result
+    assert "new_file.py" in result
+    assert "new" in result
+
+
+def test_git_diff_section_caps_at_max_files(tmp_path):
+    from weave.core.volatile import _git_diff_section
+    _init_git_repo(tmp_path)
+    for i in range(40):
+        (tmp_path / f"file_{i:03d}.txt").write_text(f"content {i}\n")
+    result = _git_diff_section(tmp_path, max_files=5)
+    assert result.count("- ") <= 6
+    assert "and 35 more" in result
+
+
+def test_git_diff_section_empty_when_no_changes(tmp_path):
+    from weave.core.volatile import _git_diff_section
+    _init_git_repo(tmp_path)
+    result = _git_diff_section(tmp_path, max_files=30)
+    assert result == ""
+
+
+def test_git_diff_section_empty_when_not_git_repo(tmp_path):
+    from weave.core.volatile import _git_diff_section
+    result = _git_diff_section(tmp_path, max_files=30)
+    assert result == ""
+
+
+def test_git_log_section_shows_recent_commits(tmp_path):
+    from weave.core.volatile import _git_log_section
+    _init_git_repo(tmp_path)
+    for i in range(3):
+        (tmp_path / f"f{i}.txt").write_text(f"{i}\n")
+        subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", f"commit {i}"], cwd=tmp_path, check=True)
+    result = _git_log_section(tmp_path, max_entries=10)
+    assert "### Recent commits" in result
+    assert "commit 2" in result
+    assert "commit 1" in result
+    assert "commit 0" in result
+
+
+def test_git_log_section_caps_at_max_entries(tmp_path):
+    from weave.core.volatile import _git_log_section
+    _init_git_repo(tmp_path)
+    for i in range(10):
+        (tmp_path / f"f{i}.txt").write_text(f"{i}\n")
+        subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", f"commit {i}"], cwd=tmp_path, check=True)
+    result = _git_log_section(tmp_path, max_entries=3)
+    lines = [l for l in result.splitlines() if l.startswith("- ")]
+    assert len(lines) == 3
+
+
+def test_git_log_section_empty_when_no_commits(tmp_path):
+    from weave.core.volatile import _git_log_section
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    result = _git_log_section(tmp_path, max_entries=10)
+    assert result == ""

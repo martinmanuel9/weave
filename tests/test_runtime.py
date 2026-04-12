@@ -124,8 +124,8 @@ def test_execute_logs_activity(temp_dir):
     assert records[0].risk_class == "workspace-write"
 
 
-def test_execute_flags_write_deny_in_sandbox(temp_dir):
-    """Sandbox phase downgrades deny to warn, so status is FLAGGED."""
+def test_execute_denies_write_deny_in_sandbox(temp_dir):
+    """Sandbox phase enforces deny (no longer downgrades to warn)."""
     from weave.core.runtime import execute
     _init_harness(temp_dir)
 
@@ -147,7 +147,7 @@ def test_execute_flags_write_deny_in_sandbox(temp_dir):
     subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
 
     result = execute(task="make env", working_dir=temp_dir, caller="test")
-    assert result.status == RuntimeStatus.FLAGGED
+    assert result.status == RuntimeStatus.DENIED
     assert result.security_result is not None
     assert any(
         f.rule_id == "write-deny-list"
@@ -212,8 +212,11 @@ def test_cli_invoke_routes_through_runtime(temp_dir, monkeypatch):
     subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@test"], cwd=temp_dir, check=True)
     subprocess.run(["git", "config", "user.name", "test"], cwd=temp_dir, check=True)
+    # Exclude .harness from git tracking so harness files don't appear as
+    # untracked and trigger the write-deny-list check on config.json.
+    (temp_dir / ".gitignore").write_text(".harness/\n")
     (temp_dir / "seed.txt").write_text("x")
-    subprocess.run(["git", "add", "seed.txt"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "add", ".gitignore", "seed.txt"], cwd=temp_dir, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
 
     monkeypatch.chdir(temp_dir)
@@ -509,12 +512,11 @@ def test_execute_preserves_pre_existing_untracked_on_revert(temp_dir):
     assert "credentials.json" not in result.security_result.files_reverted
 
 
-def test_execute_no_revert_in_sandbox_phase(temp_dir):
-    """Sandbox phase flags findings but never reverts files.
+def test_execute_reverts_in_sandbox_phase(temp_dir):
+    """Sandbox phase enforces deny and reverts files (Phase 3 change).
 
-    resolve_action downgrades 'deny' to 'warn' in sandbox, so the final
-    action_taken is 'flagged' (not 'denied'). _revert is a no-op on
-    anything other than action_taken=='denied', so files stay on disk.
+    resolve_action no longer downgrades 'deny' to 'warn' in sandbox, so the
+    final action_taken is 'denied'. _revert removes the offending file.
     """
     from weave.core.runtime import execute
     import subprocess
@@ -527,7 +529,7 @@ def test_execute_no_revert_in_sandbox_phase(temp_dir):
     subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
 
-    # Adapter writes .env (flagged but not denied in sandbox)
+    # Adapter writes .env (denied in sandbox)
     adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
     adapter.write_text(
         '#!/bin/bash\n'
@@ -539,15 +541,14 @@ def test_execute_no_revert_in_sandbox_phase(temp_dir):
 
     result = execute(task="make env", working_dir=temp_dir, caller="test")
 
-    # Sandbox downgrades deny to warn -> FLAGGED, not DENIED
-    assert result.status == RuntimeStatus.FLAGGED
+    # Sandbox enforces deny -> DENIED
+    assert result.status == RuntimeStatus.DENIED
 
-    # .env still exists (not reverted)
-    assert (temp_dir / ".env").exists()
-    assert (temp_dir / ".env").read_text() == "SECRET=test\n"
+    # .env is reverted (removed)
+    assert not (temp_dir / ".env").exists()
 
-    # files_reverted is empty
-    assert result.security_result.files_reverted == []
+    # files_reverted includes .env
+    assert ".env" in result.security_result.files_reverted
 
 
 def test_prepare_populates_context_assembly(temp_dir):

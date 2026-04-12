@@ -78,3 +78,16 @@ def test_mvp_behavior_unchanged():
     )
     assert result.allowed is False
     assert any("denies" in d.lower() for d in result.denials)
+
+
+def test_resolve_action_sandbox_no_longer_downgrades():
+    from weave.core.security import resolve_action
+    assert resolve_action("deny", "sandbox") == "deny"
+
+
+def test_resolve_action_other_phases_unchanged():
+    from weave.core.security import resolve_action
+    assert resolve_action("deny", "mvp") == "deny"
+    assert resolve_action("deny", "enterprise") == "deny"
+    assert resolve_action("warn", "sandbox") == "warn"
+    assert resolve_action("log", "sandbox") == "log"

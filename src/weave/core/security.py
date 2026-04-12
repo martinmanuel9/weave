@@ -166,11 +166,9 @@ def scan_files(
 
 
 def resolve_action(default_action: str, phase: str) -> str:
-    """Apply phase-dependent downgrade: in sandbox, deny becomes warn.
+    """Phase-dependent action resolution.
 
-    In mvp/enterprise phases, actions are preserved as-is. warn and log
-    are never downgraded.
+    All phases enforce actions as-is. The previous sandbox deny→warn
+    downgrade was removed in Phase 3 sandbox enforcement.
     """
-    if phase == "sandbox" and default_action == "deny":
-        return "warn"
     return default_action

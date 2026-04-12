@@ -128,11 +128,10 @@ def test_scanner_clean_file_returns_no_findings(temp_dir):
     assert findings == []
 
 
-def test_resolve_action_sandbox_downgrades_deny_to_warn():
+def test_resolve_action_sandbox_enforces_deny():
+    """Sandbox no longer downgrades deny to warn (Phase 3 change)."""
     from weave.core.security import resolve_action
-    assert resolve_action("deny", phase="sandbox") == "warn"
-    assert resolve_action("warn", phase="sandbox") == "warn"
-    assert resolve_action("log", phase="sandbox") == "log"
+    assert resolve_action("deny", "sandbox") == "deny"
 
 
 def test_resolve_action_mvp_preserves_deny():

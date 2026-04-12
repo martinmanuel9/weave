@@ -1,16 +1,35 @@
 """Weave configuration schema."""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from weave.schemas.policy import RiskClass, RuleOverride
 
 
 class ProviderConfig(BaseModel):
+    model_config = ConfigDict(ignored_types=(property,))
+
     command: str
     enabled: bool = True
-    health_check: str | None = None
-    capability: RiskClass = RiskClass.WORKSPACE_WRITE
+    capability_override: RiskClass | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_capability_kwarg(cls, data: dict) -> dict:
+        """Accept legacy ``capability=`` kwarg, mapping it to ``capability_override``."""
+        if isinstance(data, dict) and "capability" in data:
+            legacy = data.pop("capability")
+            if data.get("capability_override") is None:
+                data["capability_override"] = legacy
+        return data
+
+    @property
+    def capability(self) -> RiskClass:
+        """Backward-read shim — returns the effective capability ceiling.
+
+        Temporary: removed in Task 8 once all readers migrate.
+        """
+        return self.capability_override or RiskClass.WORKSPACE_WRITE
 
 
 class HooksConfig(BaseModel):
@@ -80,23 +99,22 @@ def create_default_config(default_provider: str = "claude-code") -> WeaveConfig:
             "claude-code": ProviderConfig(
                 command="claude",
                 enabled=True,
-                health_check="claude --version",
-                capability=RiskClass.WORKSPACE_WRITE,
+                capability_override=None,
             ),
             "codex": ProviderConfig(
                 command="codex",
                 enabled=False,
-                capability=RiskClass.WORKSPACE_WRITE,
+                capability_override=None,
             ),
             "gemini": ProviderConfig(
                 command="gemini",
                 enabled=False,
-                capability=RiskClass.WORKSPACE_WRITE,
+                capability_override=None,
             ),
             "ollama": ProviderConfig(
                 command="ollama",
                 enabled=False,
-                capability=RiskClass.READ_ONLY,
+                capability_override=None,
             ),
         },
     )

@@ -91,7 +91,7 @@ def scaffold_project(
         config.providers[provider.name] = ProviderConfig(
             command=provider.adapter_script,
             enabled=True,
-            health_check=provider.health_check,
+            capability_override=None,
         )
     config.context.translate_to = [p.name for p in installed]
 

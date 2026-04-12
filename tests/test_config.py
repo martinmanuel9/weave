@@ -82,7 +82,7 @@ def test_provider_config_capability_default():
 def test_provider_config_capability_explicit():
     from weave.schemas.config import ProviderConfig
     from weave.schemas.policy import RiskClass
-    p = ProviderConfig(command="x", capability="read-only")
+    p = ProviderConfig(command="x", capability_override="read-only")
     assert p.capability == RiskClass.READ_ONLY
 
 
@@ -114,3 +114,60 @@ def test_weave_config_backwards_compat():
     c = WeaveConfig.model_validate(legacy)
     assert c.providers["claude-code"].capability.value == "workspace-write"
     assert c.security is not None
+
+
+import warnings
+
+from weave.schemas.config import ProviderConfig
+from weave.schemas.policy import RiskClass
+
+
+def test_provider_config_accepts_capability_override_field():
+    cfg = ProviderConfig(command="x", capability_override=RiskClass.READ_ONLY)
+    assert cfg.capability_override == RiskClass.READ_ONLY
+
+
+def test_provider_config_legacy_capability_key_renamed_on_read(tmp_path):
+    """A config.json with the legacy 'capability' key is silently migrated."""
+    from weave.core.config import resolve_config
+
+    harness = tmp_path / ".harness"
+    harness.mkdir()
+    (harness / "config.json").write_text(
+        '{"version": "1", "phase": "sandbox", "default_provider": "claude-code", '
+        '"providers": {"claude-code": {"command": "claude", "capability": "read-only"}}}'
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        config = resolve_config(tmp_path, user_home=tmp_path)
+    provider = config.providers["claude-code"]
+    assert provider.capability_override == RiskClass.READ_ONLY
+    assert any("capability" in str(w.message).lower() for w in caught)
+
+
+def test_provider_config_new_key_wins_over_legacy_key(tmp_path):
+    from weave.core.config import resolve_config
+
+    harness = tmp_path / ".harness"
+    harness.mkdir()
+    (harness / "config.json").write_text(
+        '{"version": "1", "phase": "sandbox", "default_provider": "claude-code", '
+        '"providers": {"claude-code": {"command": "claude", '
+        '"capability": "workspace-write", "capability_override": "read-only"}}}'
+    )
+    config = resolve_config(tmp_path, user_home=tmp_path)
+    assert config.providers["claude-code"].capability_override == RiskClass.READ_ONLY
+
+
+def test_provider_config_silently_ignores_legacy_health_check_key(tmp_path):
+    from weave.core.config import resolve_config
+
+    harness = tmp_path / ".harness"
+    harness.mkdir()
+    (harness / "config.json").write_text(
+        '{"version": "1", "phase": "sandbox", "default_provider": "claude-code", '
+        '"providers": {"claude-code": {"command": "claude", '
+        '"health_check": "claude --version"}}}'
+    )
+    config = resolve_config(tmp_path, user_home=tmp_path)
+    assert not hasattr(config.providers["claude-code"], "health_check")

@@ -6,6 +6,7 @@ or GSD.
 """
 from __future__ import annotations
 
+import fnmatch as _fnmatch
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,52 @@ from weave.schemas.policy import (
     SecurityResult,
 )
 from weave.schemas.provider_contract import ProviderContract
+
+
+_PRESERVED_ENV_KEYS = frozenset({
+    "PYTHONPATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "SHELL",
+})
+
+
+def _build_sandbox_env(
+    config: WeaveConfig,
+    provider_binary_dir: str | None = None,
+) -> dict[str, str]:
+    """Build a sanitized environment dict for sandbox-phase adapter invocations.
+
+    Strips env vars matching config.sandbox.strip_env_patterns, restricts
+    PATH to config.sandbox.safe_path_dirs + provider_binary_dir, and removes
+    HOME if config.sandbox.restrict_home is True (caller sets HOME to tmpdir).
+    """
+    import os as _os
+
+    env = dict(_os.environ)
+    patterns = config.sandbox.strip_env_patterns
+
+    keys_to_remove = []
+    for key in env:
+        if key in _PRESERVED_ENV_KEYS:
+            continue
+        if key == "PATH":
+            continue  # handled separately
+        if key == "HOME" and config.sandbox.restrict_home:
+            keys_to_remove.append(key)
+            continue
+        for pattern in patterns:
+            if _fnmatch.fnmatch(key, pattern):
+                keys_to_remove.append(key)
+                break
+
+    for key in keys_to_remove:
+        del env[key]
+
+    # Rebuild PATH
+    path_dirs = list(config.sandbox.safe_path_dirs)
+    if provider_binary_dir:
+        path_dirs.insert(0, provider_binary_dir)
+    env["PATH"] = ":".join(path_dirs)
+
+    return env
 
 
 def ensure_harness(working_dir: Path, name: str | None = None) -> bool:
@@ -207,6 +254,8 @@ def _security_scan(
     deny_patterns = (
         ctx.config.security.write_deny_list + ctx.config.security.write_deny_extras
     )
+    if ctx.phase == "sandbox":
+        deny_patterns = deny_patterns + ctx.config.sandbox.extra_write_deny
     denied_writes = check_write_deny(
         files,
         ctx.working_dir,
@@ -427,44 +476,63 @@ def execute(
             status=RuntimeStatus.DENIED,
         )
 
-    invoke_result = invoke_provider(
-        contract=ctx.provider_contract,
-        task=ctx.task,
-        session_id=ctx.session_id,
-        working_dir=ctx.working_dir,
-        context=ctx.context.full,
-        timeout=timeout,
-        registry=get_registry(),
-    )
+    # Build sandbox environment if in sandbox phase
+    sandbox_env = None
+    sandbox_tmpdir = None
+    if ctx.phase == "sandbox":
+        import tempfile
+        sandbox_tmpdir = Path(tempfile.mkdtemp(prefix="weave-sandbox-"))
+        provider_bin_dir = str(ctx.adapter_script.parent)
+        sandbox_env = _build_sandbox_env(ctx.config, provider_bin_dir)
+        if ctx.config.sandbox.restrict_home:
+            sandbox_env["HOME"] = str(sandbox_tmpdir)
+            sandbox_env["XDG_CONFIG_HOME"] = str(sandbox_tmpdir / ".config")
+            sandbox_env["XDG_DATA_HOME"] = str(sandbox_tmpdir / ".local" / "share")
 
-    if invoke_result.exit_code == 124:
-        status = RuntimeStatus.TIMEOUT
-        security_result = None
-    elif invoke_result.exit_code != 0:
-        status = RuntimeStatus.FAILED
-        security_result = None
-    else:
-        security_result = _security_scan(ctx, invoke_result)
-        if security_result.action_taken == "denied":
-            status = RuntimeStatus.DENIED
-        elif security_result.action_taken == "flagged":
-            status = RuntimeStatus.FLAGGED
+    try:
+        invoke_result = invoke_provider(
+            contract=ctx.provider_contract,
+            task=ctx.task,
+            session_id=ctx.session_id,
+            working_dir=ctx.working_dir,
+            context=ctx.context.full,
+            timeout=timeout,
+            registry=get_registry(),
+            env=sandbox_env,
+        )
+
+        if invoke_result.exit_code == 124:
+            status = RuntimeStatus.TIMEOUT
+            security_result = None
+        elif invoke_result.exit_code != 0:
+            status = RuntimeStatus.FAILED
+            security_result = None
         else:
-            status = RuntimeStatus.SUCCESS
+            security_result = _security_scan(ctx, invoke_result)
+            if security_result.action_taken == "denied":
+                status = RuntimeStatus.DENIED
+            elif security_result.action_taken == "flagged":
+                status = RuntimeStatus.FLAGGED
+            else:
+                status = RuntimeStatus.SUCCESS
 
-    post_hook_results = _cleanup(ctx, invoke_result)
+        post_hook_results = _cleanup(ctx, invoke_result)
 
-    _revert(ctx, invoke_result, security_result)
+        _revert(ctx, invoke_result, security_result)
 
-    _record(
-        ctx,
-        invoke_result,
-        policy,
-        security_result,
-        pre_hook_results,
-        post_hook_results,
-        status,
-    )
+        _record(
+            ctx,
+            invoke_result,
+            policy,
+            security_result,
+            pre_hook_results,
+            post_hook_results,
+            status,
+        )
+    finally:
+        if sandbox_tmpdir and sandbox_tmpdir.exists():
+            import shutil
+            shutil.rmtree(sandbox_tmpdir, ignore_errors=True)
 
     return RuntimeResult(
         invoke_result=invoke_result,

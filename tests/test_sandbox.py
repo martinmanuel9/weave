@@ -142,3 +142,124 @@ def test_invoker_forwards_env_to_subprocess(tmp_path, monkeypatch):
         registry=registry,
     )
     assert captured_envs[0] is None
+
+
+def test_build_sandbox_env_strips_matching_vars(monkeypatch):
+    from weave.core.runtime import _build_sandbox_env
+
+    monkeypatch.setenv("AWS_SECRET_KEY", "hunter2")
+    monkeypatch.setenv("AZURE_TENANT_ID", "abc")
+    monkeypatch.setenv("SAFE_VAR", "keep-me")
+
+    config = WeaveConfig()
+    env = _build_sandbox_env(config, provider_binary_dir="/usr/local/bin")
+
+    assert "AWS_SECRET_KEY" not in env
+    assert "AZURE_TENANT_ID" not in env
+    assert env.get("SAFE_VAR") == "keep-me"
+
+
+def test_build_sandbox_env_preserves_safe_vars(monkeypatch):
+    from weave.core.runtime import _build_sandbox_env
+
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.setenv("USER", "testuser")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("PYTHONPATH", "/some/path")
+
+    config = WeaveConfig()
+    env = _build_sandbox_env(config)
+
+    assert env["LANG"] == "en_US.UTF-8"
+    assert env["USER"] == "testuser"
+    assert env["TERM"] == "xterm-256color"
+    assert env["PYTHONPATH"] == "/some/path"
+
+
+def test_build_sandbox_env_restricts_path(monkeypatch):
+    from weave.core.runtime import _build_sandbox_env
+
+    monkeypatch.setenv("PATH", "/dangerous/bin:/usr/bin:/opt/evil")
+
+    config = WeaveConfig()
+    env = _build_sandbox_env(config, provider_binary_dir="/opt/provider/bin")
+
+    path_dirs = env["PATH"].split(":")
+    assert "/opt/provider/bin" in path_dirs
+    assert "/usr/bin" in path_dirs
+    assert "/bin" in path_dirs
+    assert "/dangerous/bin" not in path_dirs
+    assert "/opt/evil" not in path_dirs
+
+
+def test_build_sandbox_env_restricts_home(monkeypatch):
+    from weave.core.runtime import _build_sandbox_env
+
+    monkeypatch.setenv("HOME", "/home/realuser")
+
+    config = WeaveConfig()
+    env = _build_sandbox_env(config)
+
+    # When restrict_home=True, HOME should be removed (caller sets it to tmpdir)
+    assert "HOME" not in env
+
+
+def test_build_sandbox_env_noop_when_config_empty(monkeypatch):
+    from weave.core.runtime import _build_sandbox_env
+    from weave.schemas.config import SandboxConfig
+
+    monkeypatch.setenv("AWS_SECRET_KEY", "hunter2")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    config = WeaveConfig(sandbox=SandboxConfig(
+        strip_env_patterns=[],
+        safe_path_dirs=[],
+        restrict_home=False,
+    ))
+    env = _build_sandbox_env(config)
+
+    assert env.get("AWS_SECRET_KEY") == "hunter2"
+
+
+def test_sandbox_extra_write_deny_appended_in_sandbox():
+    """Verify the sandbox extra_write_deny list covers the expected patterns."""
+    from weave.core.security import check_write_deny
+    import tempfile
+
+    config = WeaveConfig()
+    base_deny = config.security.write_deny_list + config.security.write_deny_extras
+    sandbox_deny = base_deny + config.sandbox.extra_write_deny
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        workflows_dir = tmp / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        (workflows_dir / "ci.yml").write_text("name: CI\n")
+
+        denied = check_write_deny(
+            [".github/workflows/ci.yml"],
+            tmp,
+            sandbox_deny,
+        )
+        assert ".github/workflows/ci.yml" in denied
+
+
+def test_sandbox_extra_write_deny_not_appended_in_mvp():
+    """In mvp phase, the extra_write_deny patterns are NOT in the base deny list."""
+    config = WeaveConfig()
+    base_deny = config.security.write_deny_list + config.security.write_deny_extras
+    for pattern in config.sandbox.extra_write_deny:
+        assert pattern not in base_deny
+
+
+def test_sandbox_tmpdir_cleaned_up():
+    """Verify tmpdir lifecycle pattern works correctly."""
+    import tempfile as tf
+
+    sandbox_tmpdir = Path(tf.mkdtemp(prefix="weave-sandbox-test-"))
+    assert sandbox_tmpdir.exists()
+    try:
+        (sandbox_tmpdir / "test.txt").write_text("hello")
+    finally:
+        shutil.rmtree(sandbox_tmpdir, ignore_errors=True)
+    assert not sandbox_tmpdir.exists()

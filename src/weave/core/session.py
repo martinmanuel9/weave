@@ -16,12 +16,21 @@ def append_activity(
     sessions_dir: Path,
     session_id: str,
     record: ActivityRecord,
+    compact_threshold: int | None = None,
 ) -> None:
-    """Append an ActivityRecord as a JSON line to {session_id}.jsonl."""
+    """Append an ActivityRecord as a JSON line to {session_id}.jsonl.
+
+    If compact_threshold is set and positive, triggers within-session
+    rolling compaction after the write.
+    """
     sessions_dir.mkdir(parents=True, exist_ok=True)
     log_file = sessions_dir / f"{session_id}.jsonl"
     with log_file.open("a", encoding="utf-8") as fh:
         fh.write(record.model_dump_json() + "\n")
+
+    if compact_threshold is not None and compact_threshold > 0:
+        from weave.core.compaction import _maybe_compact_session
+        _maybe_compact_session(sessions_dir, session_id, keep_recent=compact_threshold)
 
 
 def read_session_activities(

@@ -87,3 +87,45 @@ def _build_compaction_summary(records: list[ActivityRecord]) -> ActivityRecord:
             "unique_files_changed": unique_files,
         },
     )
+
+
+def _maybe_compact_session(
+    sessions_dir: Path,
+    session_id: str,
+    keep_recent: int,
+) -> None:
+    """Compact a session's JSONL if it exceeds keep_recent lines.
+
+    Replaces all lines before the most recent `keep_recent` with a single
+    compaction_summary record. Uses atomic .tmp → rename for crash safety.
+    """
+    if keep_recent <= 0:
+        return
+
+    log_file = sessions_dir / f"{session_id}.jsonl"
+    if not log_file.exists():
+        return
+
+    lines = [line for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(lines) <= keep_recent:
+        return
+
+    old_lines = lines[:-keep_recent]
+    recent_lines = lines[-keep_recent:]
+
+    old_records: list[ActivityRecord] = []
+    corrupt_count = 0
+    for line in old_lines:
+        try:
+            old_records.append(ActivityRecord.model_validate_json(line))
+        except Exception:
+            corrupt_count += 1
+            logger.warning("skipping corrupt line during compaction of session %s", session_id)
+
+    summary = _build_compaction_summary(old_records)
+    summary.metadata["compacted_count"] += corrupt_count
+
+    tmp = log_file.with_suffix(".jsonl.tmp")
+    content = summary.model_dump_json() + "\n" + "\n".join(recent_lines) + "\n"
+    tmp.write_text(content, encoding="utf-8")
+    tmp.rename(log_file)

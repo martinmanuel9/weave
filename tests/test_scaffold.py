@@ -77,3 +77,36 @@ def test_scaffold_adapter_scripts_executable(temp_dir):
     for script in scripts:
         mode = script.stat().st_mode
         assert mode & stat.S_IXUSR, f"{script.name} is not user-executable"
+
+
+"""Tests for quality gate scaffolding."""
+
+
+def test_scaffold_with_quality_gates_copies_hooks(tmp_path):
+    from weave.core.scaffold import scaffold_project
+
+    scaffold_project(tmp_path, name="test-proj", with_quality_gates=True)
+
+    hooks_dir = tmp_path / ".harness" / "hooks"
+    assert (hooks_dir / "run-tests.sh").exists()
+    assert (hooks_dir / "run-lint.sh").exists()
+    assert (hooks_dir / "run-tests.sh").stat().st_mode & stat.S_IXUSR
+    assert (hooks_dir / "run-lint.sh").stat().st_mode & stat.S_IXUSR
+
+    config = json.loads((tmp_path / ".harness" / "config.json").read_text())
+    assert len(config["hooks"]["post_invoke"]) == 2
+    assert any("run-tests" in h for h in config["hooks"]["post_invoke"])
+    assert any("run-lint" in h for h in config["hooks"]["post_invoke"])
+
+
+def test_scaffold_without_quality_gates_no_hooks(tmp_path):
+    from weave.core.scaffold import scaffold_project
+
+    scaffold_project(tmp_path, name="test-proj", with_quality_gates=False)
+
+    hooks_dir = tmp_path / ".harness" / "hooks"
+    assert not (hooks_dir / "run-tests.sh").exists()
+    assert not (hooks_dir / "run-lint.sh").exists()
+
+    config = json.loads((tmp_path / ".harness" / "config.json").read_text())
+    assert config["hooks"]["post_invoke"] == []

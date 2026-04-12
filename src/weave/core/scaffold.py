@@ -17,6 +17,12 @@ def _builtin_dir() -> Path:
     return Path(__file__).parent.parent / "providers" / "builtin"
 
 
+def _builtin_hooks_dir() -> Path:
+    """Return the path to the built-in hook scripts directory."""
+    import weave
+    return Path(weave.__file__).parent / "hooks" / "builtin"
+
+
 def _copy_builtin_provider_files(provider_name: str, dest_dir: Path) -> None:
     """Copy .sh and .contract.json for provider_name from built-in dir to dest_dir.
 
@@ -42,6 +48,7 @@ def scaffold_project(
     name: str | None = None,
     default_provider: str = "claude-code",
     phase: str = "sandbox",
+    with_quality_gates: bool = False,
 ) -> None:
     """Scaffold a Weave project at project_dir.
 
@@ -82,6 +89,22 @@ def scaffold_project(
             capability_override=None,
         )
     config.context.translate_to = [p.name for p in installed]
+
+    if with_quality_gates:
+        hooks_dir = harness_dir / "hooks"
+        builtin_hooks = _builtin_hooks_dir()
+        for hook_name in ["run-tests.sh", "run-lint.sh"]:
+            src_hook = builtin_hooks / hook_name
+            dst_hook = hooks_dir / hook_name
+            if src_hook.exists() and not dst_hook.exists():
+                shutil.copy2(src_hook, dst_hook)
+                dst_hook.chmod(
+                    dst_hook.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                )
+        config.hooks.post_invoke = [
+            ".harness/hooks/run-tests.sh",
+            ".harness/hooks/run-lint.sh",
+        ]
 
     config_path = harness_dir / "config.json"
     config_path.write_text(config.model_dump_json(indent=2))

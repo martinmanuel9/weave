@@ -52,14 +52,16 @@ def main():
 @click.option("--provider", "-p", default="claude-code", show_default=True, help="Default provider")
 @click.option("--phase", default="sandbox", show_default=True,
               type=click.Choice(["sandbox", "mvp", "enterprise"]), help="Project phase")
-def init_cmd(name, provider, phase):
+@click.option("--with-quality-gates", is_flag=True, help="Install pytest + ruff post-invoke hooks")
+def init_cmd(name, provider, phase, with_quality_gates):
     """Scaffold a new Weave project in the current directory."""
     try:
         from weave.core.scaffold import scaffold_project
         from weave.integrations.detection import detect_integrations
 
         cwd = Path.cwd()
-        scaffold_project(cwd, name=name, default_provider=provider, phase=phase)
+        scaffold_project(cwd, name=name, default_provider=provider, phase=phase,
+                         with_quality_gates=with_quality_gates)
 
         # Detect integrations and write to .harness/integrations/detected.json
         integrations = detect_integrations()

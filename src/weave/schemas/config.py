@@ -82,6 +82,17 @@ class SandboxConfig(BaseModel):
     restrict_home: bool = True
 
 
+class VolatileContextConfig(BaseModel):
+    enabled: bool = True
+    git_diff_enabled: bool = True
+    git_diff_max_files: int = 30
+    git_log_enabled: bool = True
+    git_log_max_entries: int = 10
+    activity_enabled: bool = True
+    activity_max_records: int = 5
+    max_total_chars: int = 8000
+
+
 class WeaveConfig(BaseModel):
     version: str = "1"
     phase: str = "sandbox"
@@ -93,6 +104,7 @@ class WeaveConfig(BaseModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    volatile_context: VolatileContextConfig = Field(default_factory=VolatileContextConfig)
 
 
 def create_default_config(default_provider: str = "claude-code") -> WeaveConfig:

@@ -282,3 +282,42 @@ def test_build_volatile_context_truncates_at_global_limit(tmp_path):
     result = build_volatile_context(repo, config)
     assert len(result) <= 130
     assert "(volatile context truncated)" in result
+
+
+def test_prepare_populates_volatile_context(tmp_path):
+    """Full integration: prepare() assembles volatile context from git + session."""
+    from weave.core import registry as registry_module
+    from weave.core.runtime import prepare
+
+    registry_module._REGISTRY_SINGLETON = None
+
+    repo = _init_git_repo(tmp_path)
+    harness = repo / ".harness"
+    for sub in ["context", "hooks", "providers", "sessions", "integrations"]:
+        (harness / sub).mkdir(parents=True, exist_ok=True)
+
+    (harness / "manifest.json").write_text(json.dumps({
+        "id": "t", "type": "project", "name": "t", "status": "active",
+        "phase": "mvp", "parent": None, "children": [],
+        "provider": "claude-code", "agent": None,
+        "created": "2026-04-11T00:00:00Z", "updated": "2026-04-11T00:00:00Z",
+        "inputs": {}, "outputs": {}, "tags": [],
+    }))
+    (harness / "config.json").write_text(json.dumps({
+        "version": "1", "phase": "mvp", "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude", "enabled": True}},
+    }))
+    (harness / "context" / "conventions.md").write_text("# Conventions\nBe nice.\n")
+
+    subprocess.run(["git", "add", ".harness"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "add harness"], cwd=repo, check=True)
+    (repo / "init.txt").write_text("modified after commit\n")
+
+    ctx = prepare(task="test volatile", working_dir=repo)
+
+    assert ctx.context.volatile_task != ""
+    assert ctx.context.stable_prefix != ""
+    assert ctx.context.full != ctx.context.stable_prefix
+    assert "\n---\n" in ctx.context.full
+    assert ctx.context.full_hash != ctx.context.stable_hash
+    assert "init.txt" in ctx.context.volatile_task

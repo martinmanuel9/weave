@@ -181,6 +181,13 @@ def prepare(
 
     context = assemble_context(working_dir)
     session_id = create_session()
+    from weave.core.volatile import build_volatile_context
+    volatile_text = build_volatile_context(
+        working_dir=working_dir,
+        config=config.volatile_context,
+        session_id=session_id,
+    )
+    context = context.with_volatile(volatile_text)
     pre_invoke_untracked = _snapshot_untracked(working_dir)
 
     prepared = PreparedContext(

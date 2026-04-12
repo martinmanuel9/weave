@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "pyright>=1.1"]
 
 [project.scripts]
 weave = "weave.cli:main"
@@ -23,3 +23,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "weave.providers.builtin" = ["*.contract.json", "*.sh"]
+"weave.hooks.builtin" = ["*.sh"]

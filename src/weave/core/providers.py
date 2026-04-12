@@ -3,14 +3,7 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass, field
-
-
-KNOWN_PROVIDERS: list[dict] = [
-    {"name": "claude-code", "command": "claude", "health_check": "which claude"},
-    {"name": "codex", "command": "codex", "health_check": "which codex"},
-    {"name": "gemini", "command": "gemini", "health_check": "which gemini"},
-    {"name": "ollama", "command": "ollama", "health_check": "which ollama"},
-]
+from pathlib import Path
 
 
 @dataclass
@@ -37,18 +30,25 @@ def check_provider_health(cmd: str) -> bool:
         return False
 
 
-def detect_providers() -> list[ProviderInfo]:
-    """Check all known providers and return a ProviderInfo list."""
+def detect_providers(project_root: Path | None = None) -> list[ProviderInfo]:
+    """Check all registry providers and return a ProviderInfo list."""
+    from weave.core.registry import get_registry
+
+    root = project_root or Path.cwd()
+    registry = get_registry()
+    registry.load(root)
+
     providers: list[ProviderInfo] = []
-    for p in KNOWN_PROVIDERS:
-        installed = check_provider_health(p["health_check"])
+    for contract in registry.list():
+        health_cmd = contract.health_check or f"which {contract.name}"
+        installed = check_provider_health(health_cmd)
         providers.append(
             ProviderInfo(
-                name=p["name"],
-                command=p["command"],
+                name=contract.name,
+                command=contract.name,
                 installed=installed,
-                health_check=p["health_check"],
-                adapter_script=f".harness/providers/{p['name']}.sh",
+                health_check=health_cmd,
+                adapter_script=f".harness/providers/{contract.name}.sh",
             )
         )
     return providers

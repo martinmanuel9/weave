@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
+import shutil
 import stat
 from pathlib import Path
 
@@ -12,41 +12,29 @@ from weave.core.manifest import write_manifest
 from weave.core.providers import ProviderInfo, detect_providers
 
 
-# CLI flags per provider name
-_CLI_FLAGS: dict[str, str] = {
-    "claude-code": "-p",
-    "codex": "exec",
-    "gemini": "",
-    "ollama": "run",
-}
-
-_ADAPTER_TEMPLATE = """\
-#!/usr/bin/env bash
-# Weave provider adapter for {name}
-set -euo pipefail
-INPUT=$(cat)
-TASK=$(echo "$INPUT" | jq -r '.task')
-WORKING_DIR=$(echo "$INPUT" | jq -r '.workingDir')
-cd "$WORKING_DIR"
-STDOUT=""
-STDERR=""
-EXIT_CODE=0
-TMPFILE="${{TMPDIR:-/tmp}}/weave-stderr-$$"
-STDOUT=$({command} {cli_flag} "$TASK" 2>"$TMPFILE") || EXIT_CODE=$?
-STDERR=$(cat "$TMPFILE" 2>/dev/null || echo "")
-rm -f "$TMPFILE"
-jq -n --arg stdout "$STDOUT" --arg stderr "$STDERR" --argjson exitCode "$EXIT_CODE" \\
-  '{{ exitCode: $exitCode, stdout: $stdout, stderr: $stderr, structured: {{}} }}'
-"""
+def _builtin_dir() -> Path:
+    """Return the path to the built-in provider files directory."""
+    return Path(__file__).parent.parent / "providers" / "builtin"
 
 
-def _build_adapter_script(provider: ProviderInfo) -> str:
-    cli_flag = _CLI_FLAGS.get(provider.name, "")
-    return _ADAPTER_TEMPLATE.format(
-        name=provider.name,
-        command=provider.command,
-        cli_flag=cli_flag,
-    )
+def _copy_builtin_provider_files(provider_name: str, dest_dir: Path) -> None:
+    """Copy .sh and .contract.json for provider_name from built-in dir to dest_dir.
+
+    Preserves executable bit on the .sh file. Skips files that already exist
+    in dest_dir so that user customisations are not overwritten.
+    """
+    src_dir = _builtin_dir()
+    for suffix in (f"{provider_name}.sh", f"{provider_name}.contract.json"):
+        src = src_dir / suffix
+        if not src.exists():
+            continue
+        dest = dest_dir / suffix
+        if dest.exists():
+            continue
+        shutil.copy2(src, dest)
+        # Preserve executable bit for adapter scripts
+        if suffix.endswith(".sh"):
+            dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def scaffold_project(
@@ -82,14 +70,14 @@ def scaffold_project(
     write_manifest(project_dir, manifest)
 
     # Detect providers and build config
-    providers = detect_providers()
+    providers = detect_providers(project_root=project_dir)
     installed = [p for p in providers if p.installed]
 
     config = create_default_config(default_provider=default_provider)
     config.phase = phase
     for provider in installed:
         config.providers[provider.name] = ProviderConfig(
-            command=provider.adapter_script,
+            command=provider.name,
             enabled=True,
             capability_override=None,
         )
@@ -124,12 +112,10 @@ def scaffold_project(
     else:
         gitignore_path.write_text(f"# Environment secrets\n{env_entries}")
 
-    # Generate bash adapter scripts for installed providers
+    # Copy built-in provider files for installed providers
     providers_dir = harness_dir / "providers"
     for provider in installed:
-        script_path = providers_dir / f"{provider.name}.sh"
-        script_path.write_text(_build_adapter_script(provider))
-        script_path.chmod(script_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        _copy_builtin_provider_files(provider.name, providers_dir)
 
 
 def _write_if_not_exists(path: Path, content: str) -> None:

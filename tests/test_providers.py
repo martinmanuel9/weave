@@ -7,7 +7,8 @@ from weave.core.providers import ProviderInfo, check_provider_health, detect_pro
 def test_detect_providers_returns_list():
     result = detect_providers()
     assert isinstance(result, list)
-    assert len(result) == 4
+    # Registry has at least the built-in providers
+    assert len(result) >= 4
     names = [p.name for p in result]
     assert "claude-code" in names
 

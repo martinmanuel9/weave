@@ -221,3 +221,127 @@ def test_session_binding_policy_config_defaults():
     cfg = SessionsConfig()
     assert cfg.binding_policy == SessionBindingPolicy.WARN
     assert cfg.binding_policy.value == "warn"
+
+
+import logging
+import subprocess
+
+import pytest
+
+
+def _make_project_with_binding(tmp_path, session_id="existing-sess", phase="mvp"):
+    """Create a minimal weave project with git, config, and an existing binding."""
+    from weave.core import registry as registry_module
+    registry_module._REGISTRY_SINGLETON = None
+
+    repo = tmp_path
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+
+    harness = repo / ".harness"
+    for sub in ["context", "hooks", "providers", "sessions", "integrations"]:
+        (harness / sub).mkdir(parents=True, exist_ok=True)
+
+    (harness / "manifest.json").write_text(json.dumps({
+        "id": "t", "type": "project", "name": "t", "status": "active",
+        "phase": phase, "parent": None, "children": [],
+        "provider": "claude-code", "agent": None,
+        "created": "2026-04-11T00:00:00Z", "updated": "2026-04-11T00:00:00Z",
+        "inputs": {}, "outputs": {}, "tags": [],
+    }))
+    (harness / "config.json").write_text(json.dumps({
+        "version": "1", "phase": phase, "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude", "enabled": True}},
+    }))
+    (harness / "context" / "conventions.md").write_text("# Conventions\nBe nice.\n")
+
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo, check=True)
+
+    # Create binding for target session_id using current state
+    from weave.core.runtime import prepare
+    ctx = prepare(task="setup", working_dir=repo)
+
+    from weave.core.session_binding import compute_binding, write_binding
+    binding = compute_binding(ctx)
+    binding = binding.model_copy(update={"session_id": session_id})
+    write_binding(binding, harness / "sessions")
+
+    return repo, session_id
+
+
+def test_prepare_with_session_id_validates_binding_warn(tmp_path, caplog):
+    from weave.core.runtime import prepare
+    from weave.core import registry as registry_module
+
+    repo, session_id = _make_project_with_binding(tmp_path)
+
+    # Change config to cause drift
+    (repo / ".harness" / "config.json").write_text(json.dumps({
+        "version": "2",
+        "phase": "mvp", "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude", "enabled": True}},
+        "sessions": {"binding_policy": "warn"},
+    }))
+
+    registry_module._REGISTRY_SINGLETON = None
+    with caplog.at_level(logging.WARNING):
+        ctx = prepare(task="reuse test", working_dir=repo, session_id=session_id)
+
+    assert ctx.session_id == session_id
+    assert any("config_hash" in rec.message for rec in caplog.records)
+
+
+def test_prepare_with_session_id_validates_binding_strict(tmp_path):
+    from weave.core.runtime import prepare
+    from weave.core import registry as registry_module
+
+    repo, session_id = _make_project_with_binding(tmp_path)
+
+    (repo / ".harness" / "config.json").write_text(json.dumps({
+        "version": "2",
+        "phase": "mvp", "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude", "enabled": True}},
+        "sessions": {"binding_policy": "strict"},
+    }))
+
+    registry_module._REGISTRY_SINGLETON = None
+    with pytest.raises(ValueError, match="config_hash"):
+        prepare(task="reuse test", working_dir=repo, session_id=session_id)
+
+
+def test_prepare_with_session_id_missing_binding(tmp_path):
+    from weave.core.runtime import prepare
+    from weave.core import registry as registry_module
+    registry_module._REGISTRY_SINGLETON = None
+
+    repo, _ = _make_project_with_binding(tmp_path, session_id="dummy")
+
+    registry_module._REGISTRY_SINGLETON = None
+    ctx = prepare(task="fresh", working_dir=repo, session_id="brand-new-sess")
+    assert ctx.session_id == "brand-new-sess"
+    assert (repo / ".harness" / "sessions" / "brand-new-sess.binding.json").exists()
+
+
+def test_prepare_with_session_id_rebind(tmp_path, caplog):
+    from weave.core.runtime import prepare
+    from weave.core import registry as registry_module
+
+    repo, session_id = _make_project_with_binding(tmp_path)
+
+    (repo / ".harness" / "config.json").write_text(json.dumps({
+        "version": "2",
+        "phase": "mvp", "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude", "enabled": True}},
+        "sessions": {"binding_policy": "rebind"},
+    }))
+
+    registry_module._REGISTRY_SINGLETON = None
+    with caplog.at_level(logging.INFO):
+        ctx = prepare(task="reuse test", working_dir=repo, session_id=session_id)
+
+    assert ctx.session_id == session_id
+    # Should be info, not warning
+    warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING and "config_hash" in r.message]
+    assert len(warning_records) == 0

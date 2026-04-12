@@ -7,6 +7,7 @@ or GSD.
 from __future__ import annotations
 
 import fnmatch as _fnmatch
+import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +20,7 @@ from weave.core.policy import evaluate_policy
 from weave.core.registry import get_registry
 from weave.core.security import DEFAULT_RULES, check_write_deny, resolve_action, scan_files
 from weave.core.session import append_activity, create_session
-from weave.core.session_binding import compute_binding, write_binding
+from weave.core.session_binding import compute_binding, read_binding, validate_session, write_binding
 from weave.schemas.activity import ActivityRecord, ActivityStatus, ActivityType, HookResult
 from weave.schemas.config import ProviderConfig, WeaveConfig
 from weave.schemas.context import ContextAssembly
@@ -33,6 +34,8 @@ from weave.schemas.policy import (
 )
 from weave.schemas.provider_contract import ProviderContract
 
+
+_logger = logging.getLogger(__name__)
 
 _PRESERVED_ENV_KEYS = frozenset({
     "PYTHONPATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "SHELL",
@@ -153,12 +156,49 @@ def _snapshot_untracked(working_dir: Path) -> set[str]:
 
 
 
+def _validate_and_rebind(ctx, sessions_dir, policy):
+    """Validate an existing session binding and apply the binding policy."""
+    from weave.schemas.config import SessionBindingPolicy
+
+    existing = read_binding(ctx.session_id, sessions_dir)
+    if existing is None:
+        binding = compute_binding(ctx)
+        write_binding(binding, sessions_dir)
+        return
+
+    mismatches = validate_session(ctx.session_id, ctx, sessions_dir)
+    if not mismatches:
+        return
+
+    mismatch_str = ", ".join(mismatches)
+
+    if policy == SessionBindingPolicy.STRICT:
+        raise ValueError(
+            f"Session {ctx.session_id} binding has drifted: {mismatch_str}. "
+            f"Binding policy is 'strict' — refusing to proceed."
+        )
+    elif policy == SessionBindingPolicy.WARN:
+        _logger.warning(
+            "Session %s binding drifted on: %s — rebinding (policy=warn)",
+            ctx.session_id, mismatch_str,
+        )
+    else:
+        _logger.info(
+            "Session %s binding drifted on: %s — rebinding (policy=rebind)",
+            ctx.session_id, mismatch_str,
+        )
+
+    binding = compute_binding(ctx)
+    write_binding(binding, sessions_dir)
+
+
 def prepare(
     task: str,
     working_dir: Path,
     provider: str | None = None,
     caller: str | None = None,
     requested_risk_class: RiskClass | None = None,
+    session_id: str | None = None,
 ) -> PreparedContext:
     """Stage 1: load config, resolve provider, assemble context, create session."""
     config = resolve_config(working_dir)
@@ -180,7 +220,9 @@ def prepare(
     adapter_script = registry.resolve_adapter_path(active_provider)
 
     context = assemble_context(working_dir)
-    session_id = create_session()
+    is_reuse = session_id is not None
+    if not is_reuse:
+        session_id = create_session()
     from weave.core.volatile import build_volatile_context
     volatile_text = build_volatile_context(
         working_dir=working_dir,
@@ -206,10 +248,13 @@ def prepare(
         pre_invoke_untracked=pre_invoke_untracked,
     )
 
-    # Write the session binding sidecar
-    binding = compute_binding(prepared)
+    # Session binding: validate if reusing, write if new
     sessions_dir = working_dir / ".harness" / "sessions"
-    write_binding(binding, sessions_dir)
+    if is_reuse:
+        _validate_and_rebind(prepared, sessions_dir, config.sessions.binding_policy)
+    else:
+        binding = compute_binding(prepared)
+        write_binding(binding, sessions_dir)
 
     return prepared
 
@@ -460,6 +505,7 @@ def execute(
     caller: str | None = None,
     requested_risk_class: RiskClass | None = None,
     timeout: int = 300,
+    session_id: str | None = None,
 ) -> RuntimeResult:
     """Run the full 7-stage pipeline and return a RuntimeResult."""
     ctx = prepare(
@@ -468,6 +514,7 @@ def execute(
         provider=provider,
         caller=caller,
         requested_risk_class=requested_risk_class,
+        session_id=session_id,
     )
 
     policy, pre_hook_results = _policy_check(ctx)

@@ -422,3 +422,36 @@ def test_lifecycle_handles_corrupt_session(tmp_path):
     assert entries[0]["session_id"] == "corrupt"
     assert entries[0]["invocation_count"] == 0
     assert entries[0]["final_status"] == "unknown"
+
+
+def test_compact_cli_command_exists():
+    from click.testing import CliRunner
+    from weave.cli import main
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["compact", "--help"])
+    assert result.exit_code == 0
+    assert "compact" in result.output.lower()
+
+
+def test_compact_cli_runs_lifecycle(tmp_path):
+    from click.testing import CliRunner
+    from weave.cli import main
+
+    sessions_dir = tmp_path / ".harness" / "sessions"
+    _create_session_files(sessions_dir, "old-sess", mtime_offset=-1000)
+    _create_session_files(sessions_dir, "new-sess", mtime_offset=0)
+    harness = tmp_path / ".harness"
+    (harness / "config.json").write_text(json.dumps({
+        "version": "1", "phase": "sandbox", "default_provider": "claude-code",
+        "providers": {"claude-code": {"command": "claude"}},
+        "sessions": {"compaction": {"sessions_to_keep": 1}},
+    }))
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        import os
+        os.chdir(tmp_path)
+        result = runner.invoke(main, ["compact"])
+    assert result.exit_code == 0
+    assert "1" in result.output

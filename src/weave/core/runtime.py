@@ -393,7 +393,8 @@ def _record(
         caller=ctx.caller,
         runtime_status=status.value,
     )
-    append_activity(sessions_dir, ctx.session_id, record)
+    compact_threshold = ctx.config.sessions.compaction.records_per_session
+    append_activity(sessions_dir, ctx.session_id, record, compact_threshold=compact_threshold)
 
 
 def execute(

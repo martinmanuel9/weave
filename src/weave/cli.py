@@ -710,3 +710,30 @@ def sync_cmd():
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# weave compact
+# ---------------------------------------------------------------------------
+
+@main.command("compact")
+@click.option("--dry-run", is_flag=True, help="Show what would be removed without acting")
+def compact_cmd(dry_run):
+    """Compact old sessions: summarize to ledger and delete raw files."""
+    from weave.core.compaction import compact_sessions
+    from weave.core.config import resolve_config
+
+    working_dir = Path.cwd()
+    config = resolve_config(working_dir)
+    sessions_dir = working_dir / ".harness" / "sessions"
+    sessions_to_keep = config.sessions.compaction.sessions_to_keep
+
+    result = compact_sessions(sessions_dir, sessions_to_keep, dry_run=dry_run)
+
+    if dry_run:
+        click.echo(f"Dry run: would remove {result.removed} sessions ({result.kept} kept)")
+    else:
+        click.echo(f"Compacted {result.removed} sessions ({result.kept} kept)")
+        if result.errors:
+            for err in result.errors:
+                click.echo(f"  error: {err}", err=True)

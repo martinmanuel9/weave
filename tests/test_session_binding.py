@@ -214,3 +214,10 @@ def test_validate_session_detects_config_hash_mismatch(temp_dir):
 
     mismatches = validate_session(ctx1.session_id, ctx2, sessions_dir)
     assert mismatches == ["config_hash"]
+
+
+def test_session_binding_policy_config_defaults():
+    from weave.schemas.config import SessionBindingPolicy, SessionsConfig
+    cfg = SessionsConfig()
+    assert cfg.binding_policy == SessionBindingPolicy.WARN
+    assert cfg.binding_policy.value == "warn"

@@ -1,9 +1,17 @@
 """Weave configuration schema."""
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel, Field
 
 from weave.schemas.policy import RiskClass, RuleOverride
+
+
+class SessionBindingPolicy(str, Enum):
+    WARN = "warn"
+    REBIND = "rebind"
+    STRICT = "strict"
 
 
 class ProviderConfig(BaseModel):
@@ -25,6 +33,7 @@ class CompactionConfig(BaseModel):
 
 class SessionsConfig(BaseModel):
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
+    binding_policy: SessionBindingPolicy = SessionBindingPolicy.WARN
 
 
 class LoggingConfig(BaseModel):

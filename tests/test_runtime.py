@@ -4,11 +4,18 @@ from pathlib import Path
 
 import pytest
 
+import weave.core.registry as registry_module
 from weave.schemas.policy import RiskClass, RuntimeStatus
+
+
+def _reset_registry():
+    """Reset the registry singleton so each test gets a fresh load."""
+    registry_module._REGISTRY_SINGLETON = None
 
 
 def _init_harness(root: Path):
     """Create a minimal .harness/ directory in root."""
+    _reset_registry()
     harness = root / ".harness"
     harness.mkdir()
     for sub in ["context", "hooks", "providers", "sessions", "integrations"]:
@@ -28,7 +35,7 @@ def _init_harness(root: Path):
             "claude-code": {
                 "command": ".harness/providers/claude-code.sh",
                 "enabled": True,
-                "capability": "workspace-write",
+                "capability_override": "workspace-write",
             }
         },
     }))
@@ -39,6 +46,19 @@ def _init_harness(root: Path):
         'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "ok", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
+    # Write contract sidecar so the registry picks up this user adapter
+    (harness / "providers" / "claude-code.contract.json").write_text(json.dumps({
+        "contract_version": "1",
+        "name": "claude-code",
+        "display_name": "Claude Code",
+        "adapter": "claude-code.sh",
+        "adapter_runtime": "bash",
+        "capability_ceiling": "workspace-write",
+        "protocol": {
+            "request_schema": "weave.request.v1",
+            "response_schema": "weave.response.v1",
+        },
+    }))
     return harness
 
 
@@ -789,3 +809,131 @@ def test_session_end_handles_non_git_directory_gracefully(temp_dir, monkeypatch)
     final = records[-1]
     assert final.runtime_status == "success"
     assert final.files_changed == []
+
+
+# ---------------------------------------------------------------------------
+# Task 8 — new tests for contract integration
+# ---------------------------------------------------------------------------
+
+
+def test_prepare_attaches_provider_contract(temp_dir):
+    """prepare() resolves and attaches a ProviderContract to PreparedContext."""
+    from weave.core.runtime import prepare
+    from weave.schemas.provider_contract import ProviderContract
+
+    _reset_registry()
+    _init_harness(temp_dir)
+
+    ctx = prepare(task="x", working_dir=temp_dir, caller="test")
+
+    assert isinstance(ctx.provider_contract, ProviderContract)
+    assert ctx.provider_contract.name == "claude-code"
+    assert ctx.provider_contract.capability_ceiling == RiskClass.WORKSPACE_WRITE
+
+
+def test_prepare_raises_runtime_error_for_unknown_provider(temp_dir):
+    """prepare() raises RuntimeError when config references an unknown provider."""
+    from weave.core.runtime import prepare
+
+    _reset_registry()
+    harness = _init_harness(temp_dir)
+
+    # Add an unknown provider to the config
+    config_path = harness / "config.json"
+    config_path.write_text(json.dumps({
+        "version": "1",
+        "phase": "sandbox",
+        "default_provider": "claude-code",
+        "providers": {
+            "claude-code": {
+                "command": "claude",
+                "enabled": True,
+                "capability_override": "workspace-write",
+            },
+            "mystery-ai": {
+                "command": "mystery",
+                "enabled": True,
+            },
+        },
+    }))
+
+    with pytest.raises(RuntimeError, match="unknown provider.*mystery-ai"):
+        prepare(task="x", working_dir=temp_dir, provider="mystery-ai", caller="test")
+
+
+def test_config_load_rejects_capability_override_above_ceiling(temp_dir):
+    """resolve_config raises ValueError when capability_override > contract ceiling."""
+    from weave.core.config import resolve_config
+
+    _reset_registry()
+    harness = temp_dir / ".harness"
+    harness.mkdir()
+    for sub in ["context", "hooks", "providers", "sessions", "integrations"]:
+        (harness / sub).mkdir()
+    (harness / "manifest.json").write_text(json.dumps({
+        "id": "test-id", "type": "project", "name": "test",
+        "status": "active", "phase": "sandbox",
+    }))
+    # ollama has ceiling=read-only; set capability_override=destructive
+    (harness / "config.json").write_text(json.dumps({
+        "version": "1",
+        "phase": "sandbox",
+        "default_provider": "claude-code",
+        "providers": {
+            "claude-code": {"command": "claude", "enabled": True},
+            "ollama": {
+                "command": "ollama",
+                "enabled": True,
+                "capability_override": "destructive",
+            },
+        },
+    }))
+
+    with pytest.raises(ValueError, match="capability_override.*exceeds contract ceiling"):
+        resolve_config(temp_dir, user_home=temp_dir)
+
+
+def test_prepare_effective_capability_clamps_to_contract_ceiling(temp_dir):
+    """Policy effective risk class is clamped to the contract ceiling.
+
+    ollama has ceiling=read-only. Without any override, the effective
+    capability should be read-only (not the default workspace-write).
+    """
+    from weave.core.runtime import prepare
+    from weave.core.policy import evaluate_policy
+
+    _reset_registry()
+    _init_harness(temp_dir)
+
+    # Add ollama to config and switch to it as default
+    config_path = temp_dir / ".harness" / "config.json"
+    config_path.write_text(json.dumps({
+        "version": "1",
+        "phase": "sandbox",
+        "default_provider": "ollama",
+        "providers": {
+            "claude-code": {
+                "command": "claude",
+                "enabled": True,
+                "capability_override": "workspace-write",
+            },
+            "ollama": {
+                "command": "ollama",
+                "enabled": True,
+            },
+        },
+    }))
+
+    ctx = prepare(task="x", working_dir=temp_dir, provider="ollama", caller="test")
+
+    # The contract ceiling is read-only
+    assert ctx.provider_contract.capability_ceiling == RiskClass.READ_ONLY
+
+    # Policy evaluation clamps effective to read-only
+    policy = evaluate_policy(
+        contract=ctx.provider_contract,
+        provider_config=ctx.provider_config,
+        requested_class=None,
+        phase=ctx.phase,
+    )
+    assert policy.effective_risk_class == RiskClass.READ_ONLY

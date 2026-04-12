@@ -318,13 +318,27 @@ def session_end_cmd(session_id):
             click.echo(f"Error: Provider '{provider_name}' not configured", err=True)
             sys.exit(1)
 
-        adapter_script = cwd / ".harness" / "providers" / f"{provider_name}.sh"
+        # Resolve contract from registry
+        from weave.core.registry import get_registry
+
+        registry = get_registry()
+        registry.load(cwd)
+        if not registry.has(provider_name):
+            known = ", ".join(sorted(c.name for c in registry.list()))
+            click.echo(
+                f"Error: unknown provider {provider_name!r}. Known: {known}",
+                err=True,
+            )
+            sys.exit(1)
+        contract = registry.get(provider_name)
+        adapter_script = registry.resolve_adapter_path(provider_name)
         context = assemble_context(cwd)
 
         ctx = PreparedContext(
             config=config,
             active_provider=provider_name,
             provider_config=provider_config,
+            provider_contract=contract,
             adapter_script=adapter_script,
             context=context,
             session_id=session_id,
@@ -364,34 +378,8 @@ def session_end_cmd(session_id):
         _revert(ctx, fake_invoke_result, security_result)
 
         # Re-evaluate policy at end-time using current config
-        # Transitional: synthesize a contract from ProviderConfig.capability
-        # (the backward-compat shim). Task 8 resolves from registry instead.
-        from weave.core.registry import get_registry
-        from weave.schemas.provider_contract import (
-            AdapterRuntime,
-            ProviderContract,
-            ProviderProtocol,
-        )
-
-        registry = get_registry()
-        registry.load(cwd)
-        if registry.has(provider_name):
-            contract = registry.get(provider_name)
-        else:
-            contract = ProviderContract(
-                name=provider_name,
-                display_name=provider_name,
-                adapter=str(adapter_script),
-                adapter_runtime=AdapterRuntime.BASH,
-                capability_ceiling=provider_config.capability,
-                protocol=ProviderProtocol(
-                    request_schema="weave.request.v1",
-                    response_schema="weave.response.v1",
-                ),
-            )
-
         policy_result = evaluate_policy(
-            contract=contract,
+            contract=ctx.provider_contract,
             provider_config=provider_config,
             requested_class=None,
             phase=ctx.phase,

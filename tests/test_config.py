@@ -72,18 +72,17 @@ def test_resolve_user_layer(tmp_path):
     assert config.logging.level == "debug"
 
 
-def test_provider_config_capability_default():
+def test_provider_config_capability_override_default():
     from weave.schemas.config import ProviderConfig
-    from weave.schemas.policy import RiskClass
     p = ProviderConfig(command="x")
-    assert p.capability == RiskClass.WORKSPACE_WRITE
+    assert p.capability_override is None
 
 
-def test_provider_config_capability_explicit():
+def test_provider_config_capability_override_explicit():
     from weave.schemas.config import ProviderConfig
     from weave.schemas.policy import RiskClass
     p = ProviderConfig(command="x", capability_override="read-only")
-    assert p.capability == RiskClass.READ_ONLY
+    assert p.capability_override == RiskClass.READ_ONLY
 
 
 def test_security_config_defaults():
@@ -112,7 +111,7 @@ def test_weave_config_backwards_compat():
         "providers": {"claude-code": {"command": "claude"}},
     }
     c = WeaveConfig.model_validate(legacy)
-    assert c.providers["claude-code"].capability.value == "workspace-write"
+    assert c.providers["claude-code"].capability_override is None
     assert c.security is not None
 
 

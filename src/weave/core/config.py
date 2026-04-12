@@ -6,6 +6,7 @@ import warnings
 from pathlib import Path
 
 from ..schemas.config import WeaveConfig, create_default_config
+from ..schemas.policy import risk_class_level
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -67,4 +68,37 @@ def resolve_config(project_dir: Path, user_home: Path | None = None) -> WeaveCon
 
     _migrate_provider_legacy_keys(merged)
 
-    return WeaveConfig.model_validate(merged)
+    config = WeaveConfig.model_validate(merged)
+
+    if (project_dir / ".harness").is_dir():
+        _validate_capability_ceilings(config, project_dir)
+
+    return config
+
+
+def _validate_capability_ceilings(config: WeaveConfig, project_dir: Path) -> None:
+    """Reject configs where capability_override exceeds the contract ceiling.
+
+    Loads the provider registry and checks each provider that has a
+    non-None capability_override. Unknown providers are silently skipped
+    (prepare() will raise later with a clear message).
+    """
+    from weave.core.registry import get_registry
+
+    registry = get_registry()
+    registry.load(project_dir)
+
+    for provider_name, pcfg in config.providers.items():
+        if pcfg.capability_override is None:
+            continue
+        if not registry.has(provider_name):
+            continue
+        contract = registry.get(provider_name)
+        if risk_class_level(pcfg.capability_override) > risk_class_level(
+            contract.capability_ceiling
+        ):
+            raise ValueError(
+                f"provider {provider_name!r}: capability_override "
+                f"{pcfg.capability_override.value!r} exceeds contract ceiling "
+                f"{contract.capability_ceiling.value!r}"
+            )

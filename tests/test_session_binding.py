@@ -2,9 +2,16 @@
 import json
 from pathlib import Path
 
+import weave.core.registry as registry_module
+
+
+def _reset_registry():
+    registry_module._REGISTRY_SINGLETON = None
+
 
 def _init_harness(root: Path):
     """Create a minimal .harness/ directory for prepare() to consume."""
+    _reset_registry()
     harness = root / ".harness"
     harness.mkdir()
     for sub in ["context", "hooks", "providers", "sessions", "integrations"]:
@@ -24,7 +31,7 @@ def _init_harness(root: Path):
             "claude-code": {
                 "command": ".harness/providers/claude-code.sh",
                 "enabled": True,
-                "capability": "workspace-write",
+                "capability_override": "workspace-write",
             }
         },
     }))
@@ -35,6 +42,19 @@ def _init_harness(root: Path):
         'echo \'{"exitCode": 0, "stdout": "ok", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
+    # Write contract sidecar so the registry picks up this user adapter
+    (harness / "providers" / "claude-code.contract.json").write_text(json.dumps({
+        "contract_version": "1",
+        "name": "claude-code",
+        "display_name": "Claude Code",
+        "adapter": "claude-code.sh",
+        "adapter_runtime": "bash",
+        "capability_ceiling": "workspace-write",
+        "protocol": {
+            "request_schema": "weave.request.v1",
+            "response_schema": "weave.response.v1",
+        },
+    }))
     return harness
 
 
@@ -87,9 +107,9 @@ def test_compute_binding_config_hash_is_canonical():
         phase="sandbox",
         default_provider="claude-code",
         providers={
-            "claude-code": ProviderConfig(command="claude", capability=RiskClass.WORKSPACE_WRITE),
-            "codex": ProviderConfig(command="codex", capability=RiskClass.WORKSPACE_WRITE),
-            "gemini": ProviderConfig(command="gemini", capability=RiskClass.WORKSPACE_WRITE),
+            "claude-code": ProviderConfig(command="claude", capability_override=RiskClass.WORKSPACE_WRITE),
+            "codex": ProviderConfig(command="codex", capability_override=RiskClass.WORKSPACE_WRITE),
+            "gemini": ProviderConfig(command="gemini", capability_override=RiskClass.WORKSPACE_WRITE),
         },
     )
     config_b = WeaveConfig(
@@ -97,9 +117,9 @@ def test_compute_binding_config_hash_is_canonical():
         phase="sandbox",
         default_provider="claude-code",
         providers={
-            "gemini": ProviderConfig(command="gemini", capability=RiskClass.WORKSPACE_WRITE),
-            "codex": ProviderConfig(command="codex", capability=RiskClass.WORKSPACE_WRITE),
-            "claude-code": ProviderConfig(command="claude", capability=RiskClass.WORKSPACE_WRITE),
+            "gemini": ProviderConfig(command="gemini", capability_override=RiskClass.WORKSPACE_WRITE),
+            "codex": ProviderConfig(command="codex", capability_override=RiskClass.WORKSPACE_WRITE),
+            "claude-code": ProviderConfig(command="claude", capability_override=RiskClass.WORKSPACE_WRITE),
         },
     )
 

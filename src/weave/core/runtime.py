@@ -15,6 +15,7 @@ from weave.core.context import assemble_context
 from weave.core.hooks import HookContext, run_hooks
 from weave.core.invoker import InvokeResult, invoke_provider
 from weave.core.policy import evaluate_policy
+from weave.core.registry import get_registry
 from weave.core.security import DEFAULT_RULES, check_write_deny, resolve_action, scan_files
 from weave.core.session import append_activity, create_session
 from weave.core.session_binding import compute_binding, write_binding
@@ -29,6 +30,7 @@ from weave.schemas.policy import (
     SecurityFinding,
     SecurityResult,
 )
+from weave.schemas.provider_contract import ProviderContract
 
 
 def ensure_harness(working_dir: Path, name: str | None = None) -> bool:
@@ -58,6 +60,7 @@ class PreparedContext:
     config: WeaveConfig
     active_provider: str
     provider_config: ProviderConfig
+    provider_contract: ProviderContract
     adapter_script: Path
     context: ContextAssembly
     session_id: str
@@ -118,7 +121,17 @@ def prepare(
     if provider_config is None:
         raise ValueError(f"Provider '{active_provider}' not configured")
 
-    adapter_script = working_dir / ".harness" / "providers" / f"{active_provider}.sh"
+    # Resolve contract from the registry
+    registry = get_registry()
+    registry.load(working_dir)
+    if not registry.has(active_provider):
+        known = ", ".join(sorted(c.name for c in registry.list()))
+        raise RuntimeError(
+            f"unknown provider: {active_provider!r}. Known providers: {known}"
+        )
+    contract = registry.get(active_provider)
+    adapter_script = registry.resolve_adapter_path(active_provider)
+
     context = assemble_context(working_dir)
     session_id = create_session()
     pre_invoke_untracked = _snapshot_untracked(working_dir)
@@ -127,6 +140,7 @@ def prepare(
         config=config,
         active_provider=active_provider,
         provider_config=provider_config,
+        provider_contract=contract,
         adapter_script=adapter_script,
         context=context,
         session_id=session_id,
@@ -148,35 +162,8 @@ def prepare(
 
 def _policy_check(ctx: PreparedContext) -> tuple[PolicyResult, list[HookResult]]:
     """Stage 2: evaluate policy and run pre-invoke hooks."""
-    from weave.core.registry import get_registry
-    from weave.schemas.provider_contract import (
-        AdapterRuntime,
-        ProviderContract,
-        ProviderProtocol,
-    )
-
-    registry = get_registry()
-    registry.load(ctx.working_dir)
-    if registry.has(ctx.active_provider):
-        contract = registry.get(ctx.active_provider)
-    else:
-        # Transitional: registry not yet wired into prepare(). Synthesize
-        # a minimal contract from ProviderConfig.capability (the shim).
-        # Task 8 removes this branch and resolves the contract in prepare().
-        contract = ProviderContract(
-            name=ctx.active_provider,
-            display_name=ctx.active_provider,
-            adapter=str(ctx.adapter_script),
-            adapter_runtime=AdapterRuntime.BASH,
-            capability_ceiling=ctx.provider_config.capability,
-            protocol=ProviderProtocol(
-                request_schema="weave.request.v1",
-                response_schema="weave.response.v1",
-            ),
-        )
-
     policy = evaluate_policy(
-        contract=contract,
+        contract=ctx.provider_contract,
         provider_config=ctx.provider_config,
         requested_class=ctx.requested_risk_class,
         phase=ctx.phase,
@@ -439,37 +426,14 @@ def execute(
             status=RuntimeStatus.DENIED,
         )
 
-    # --- Transitional contract synthesis for invoke_provider ---
-    # Task 8 will resolve the contract in prepare() and remove this block.
-    # Always synthesise from ctx.adapter_script so the adapter chosen by
-    # prepare() is honoured.  The registry is NOT consulted here because
-    # prepare() already picked the adapter path from the harness layout;
-    # Task 8 will unify these two code-paths.
-    from weave.schemas.provider_contract import (
-        AdapterRuntime,
-        ProviderContract as _ProviderContract,
-        ProviderProtocol,
-    )
-
-    _inv_contract = _ProviderContract(
-        name=ctx.active_provider,
-        display_name=ctx.active_provider,
-        adapter=str(ctx.adapter_script),
-        adapter_runtime=AdapterRuntime.BASH,
-        capability_ceiling=ctx.provider_config.capability,
-        protocol=ProviderProtocol(
-            request_schema="weave.request.v1",
-            response_schema="weave.response.v1",
-        ),
-    )
-
     invoke_result = invoke_provider(
-        contract=_inv_contract,
+        contract=ctx.provider_contract,
         task=ctx.task,
         session_id=ctx.session_id,
         working_dir=ctx.working_dir,
         context=ctx.context.full,
         timeout=timeout,
+        registry=get_registry(),
     )
 
     if invoke_result.exit_code == 124:

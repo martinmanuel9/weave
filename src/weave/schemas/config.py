@@ -1,35 +1,15 @@
 """Weave configuration schema."""
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field
 
 from weave.schemas.policy import RiskClass, RuleOverride
 
 
 class ProviderConfig(BaseModel):
-    model_config = ConfigDict(ignored_types=(property,))
-
     command: str
     enabled: bool = True
     capability_override: RiskClass | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _accept_legacy_capability_kwarg(cls, data: dict) -> dict:
-        """Accept legacy ``capability=`` kwarg, mapping it to ``capability_override``."""
-        if isinstance(data, dict) and "capability" in data:
-            legacy = data.pop("capability")
-            if data.get("capability_override") is None:
-                data["capability_override"] = legacy
-        return data
-
-    @property
-    def capability(self) -> RiskClass:
-        """Backward-read shim — returns the effective capability ceiling.
-
-        Temporary: removed in Task 8 once all readers migrate.
-        """
-        return self.capability_override or RiskClass.WORKSPACE_WRITE
 
 
 class HooksConfig(BaseModel):

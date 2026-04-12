@@ -170,3 +170,30 @@ def test_provider_config_silently_ignores_legacy_health_check_key(tmp_path):
     )
     config = resolve_config(tmp_path, user_home=tmp_path)
     assert not hasattr(config.providers["claude-code"], "health_check")
+
+
+def test_compaction_config_new_fields():
+    from weave.schemas.config import CompactionConfig
+    cfg = CompactionConfig()
+    assert cfg.records_per_session == 50
+    assert cfg.sessions_to_keep == 50
+    assert not hasattr(cfg, "keep_recent")
+    assert not hasattr(cfg, "archive_dir")
+
+
+def test_compaction_config_legacy_keep_recent_migrated(tmp_path):
+    from weave.core.config import resolve_config
+
+    harness = tmp_path / ".harness"
+    harness.mkdir()
+    (harness / "config.json").write_text(
+        '{"version": "1", "phase": "sandbox", "default_provider": "claude-code", '
+        '"providers": {"claude-code": {"command": "claude"}}, '
+        '"sessions": {"compaction": {"keep_recent": 25, "archive_dir": ".harness/old"}}}'
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        config = resolve_config(tmp_path, user_home=tmp_path)
+    assert config.sessions.compaction.records_per_session == 25
+    assert config.sessions.compaction.sessions_to_keep == 50  # default, not migrated
+    assert any("keep_recent" in str(w.message).lower() for w in caught)

@@ -19,8 +19,8 @@ class HooksConfig(BaseModel):
 
 
 class CompactionConfig(BaseModel):
-    keep_recent: int = 50
-    archive_dir: str = ".harness/archive"
+    records_per_session: int = 50
+    sessions_to_keep: int = 50
 
 
 class SessionsConfig(BaseModel):

@@ -63,7 +63,7 @@ def test_config_defaults():
     assert "claude-code" in cfg.providers
     assert cfg.providers["claude-code"].enabled is True
     assert cfg.hooks.pre_invoke == []
-    assert cfg.sessions.compaction.keep_recent == 50
+    assert cfg.sessions.compaction.records_per_session == 50
     assert cfg.logging.level == "info"
     assert cfg.logging.format == "jsonl"
     assert "claude-code" in cfg.context.translate_to
@@ -118,7 +118,7 @@ def test_config_json_roundtrip():
     assert restored.default_provider == original.default_provider
     assert restored.version == original.version
     assert set(restored.providers.keys()) == set(original.providers.keys())
-    assert restored.sessions.compaction.keep_recent == original.sessions.compaction.keep_recent
+    assert restored.sessions.compaction.records_per_session == original.sessions.compaction.records_per_session
 
 
 # ---------------------------------------------------------------------------

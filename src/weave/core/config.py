@@ -53,6 +53,30 @@ def _migrate_provider_legacy_keys(merged: dict) -> None:
             entry.pop("health_check")
 
 
+def _migrate_compaction_legacy_keys(merged: dict) -> None:
+    """Rename legacy compaction keys.
+
+    `keep_recent` → `records_per_session`. `archive_dir` is silently dropped.
+    Mutates `merged` in place.
+    """
+    sessions = merged.get("sessions")
+    if not isinstance(sessions, dict):
+        return
+    compaction = sessions.get("compaction")
+    if not isinstance(compaction, dict):
+        return
+    if "keep_recent" in compaction:
+        legacy = compaction.pop("keep_recent")
+        compaction["records_per_session"] = legacy
+        warnings.warn(
+            "config: compaction 'keep_recent' renamed to 'records_per_session'",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if "archive_dir" in compaction:
+        compaction.pop("archive_dir")
+
+
 def resolve_config(project_dir: Path, user_home: Path | None = None) -> WeaveConfig:
     """Resolve config from defaults → user → project → local layers."""
     home = user_home or Path.home()
@@ -67,6 +91,7 @@ def resolve_config(project_dir: Path, user_home: Path | None = None) -> WeaveCon
             merged = _deep_merge(merged, json.loads(config_path.read_text()))
 
     _migrate_provider_legacy_keys(merged)
+    _migrate_compaction_legacy_keys(merged)
 
     config = WeaveConfig.model_validate(merged)
 

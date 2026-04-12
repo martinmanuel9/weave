@@ -15,7 +15,7 @@ from weave.core.registry import (
 from weave.schemas.policy import RiskClass
 
 
-BUILTIN_NAMES = {"claude-code", "codex", "gemini", "ollama", "vllm"}
+BUILTIN_NAMES = {"claude-code", "codex", "gemini", "ollama", "opencode", "vllm"}
 
 
 def _valid_user_contract(name: str, adapter_filename: str) -> dict:

@@ -744,6 +744,7 @@ def sync_cmd():
 # weave compact
 # ---------------------------------------------------------------------------
 
+
 @main.command("compact")
 @click.option("--dry-run", is_flag=True, help="Show what would be removed without acting")
 def compact_cmd(dry_run):
@@ -765,3 +766,56 @@ def compact_cmd(dry_run):
         if result.errors:
             for err in result.errors:
                 click.echo(f"  error: {err}", err=True)
+
+
+# ---------------------------------------------------------------------------
+# weave providers
+# ---------------------------------------------------------------------------
+
+@main.group("providers")
+def providers_group():
+    """Manage provider contracts and registry."""
+    pass
+
+
+@providers_group.command("list")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def providers_list_cmd(as_json):
+    """List all registered providers with health status and capabilities."""
+    from weave.core.registry import get_registry
+    from weave.core.providers import check_provider_health
+
+    registry = get_registry()
+    registry.load(Path.cwd())
+    contracts = registry.list()
+
+    if as_json:
+        import json as json_mod
+        output = []
+        for c in contracts:
+            installed = check_provider_health(c.health_check) if c.health_check else False
+            output.append({
+                "name": c.name,
+                "display_name": c.display_name,
+                "capability_ceiling": c.capability_ceiling.value,
+                "declared_features": [f.value for f in c.declared_features],
+                "health_check": c.health_check,
+                "installed": installed,
+                "source": c.source,
+                "adapter_runtime": c.adapter_runtime.value,
+            })
+        click.echo(json_mod.dumps(output, indent=2))
+        return
+
+    click.echo(f"\nProviders ({len(contracts)} registered):\n")
+    for c in contracts:
+        installed = check_provider_health(c.health_check) if c.health_check else False
+        features = ", ".join(f.value for f in c.declared_features)
+        health = "installed" if installed else "not found"
+        click.echo(
+            f"  {c.name:<15} {c.capability_ceiling.value:<18} "
+            f"[{features}]"
+        )
+        click.echo(
+            f"  {'':<15} {health:<18} ({c.source})"
+        )

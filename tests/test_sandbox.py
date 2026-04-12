@@ -91,3 +91,54 @@ def test_resolve_action_other_phases_unchanged():
     assert resolve_action("deny", "enterprise") == "deny"
     assert resolve_action("warn", "sandbox") == "warn"
     assert resolve_action("log", "sandbox") == "log"
+
+
+def test_invoker_forwards_env_to_subprocess(tmp_path, monkeypatch):
+    """Verify invoke_provider passes env dict to subprocess.run."""
+    import subprocess as sp
+    from weave.core.invoker import invoke_provider
+    from weave.core import registry as registry_module
+
+    adapter = tmp_path / "echo.sh"
+    adapter.write_text("#!/usr/bin/env bash\ncat /dev/stdin > /dev/null\n"
+        'echo \'{"protocol":"weave.response.v1","exitCode":0,"stdout":"","stderr":"","structured":{}}\'\n')
+    adapter.chmod(0o755)
+
+    contract = make_contract(name="envtest", adapter="echo.sh")
+    registry = registry_module.ProviderRegistry()
+    registry._contracts[contract.name] = contract
+    registry._manifest_dirs[contract.name] = adapter.parent
+
+    # Collect env kwarg from each subprocess.run call; first call is the adapter,
+    # subsequent calls are git helper invocations inside _get_git_changed_files.
+    captured_envs: list = []
+    original_run = sp.run
+
+    def spy_run(*args, **kwargs):
+        captured_envs.append(kwargs.get("env"))
+        return original_run(*args, **kwargs)
+
+    monkeypatch.setattr(sp, "run", spy_run)
+
+    custom_env = {"PATH": "/usr/bin", "HOME": "/tmp/sandbox", "CUSTOM": "value"}
+    invoke_provider(
+        contract=contract,
+        task="hi",
+        session_id="sess",
+        working_dir=tmp_path,
+        registry=registry,
+        env=custom_env,
+    )
+    # First subprocess.run call is the adapter — it must receive the custom env.
+    assert captured_envs[0] is custom_env
+
+    # Also verify None env is forwarded (inherit parent) on a fresh invocation.
+    captured_envs.clear()
+    invoke_provider(
+        contract=contract,
+        task="hi",
+        session_id="sess",
+        working_dir=tmp_path,
+        registry=registry,
+    )
+    assert captured_envs[0] is None

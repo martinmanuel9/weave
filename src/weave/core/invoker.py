@@ -83,6 +83,7 @@ def invoke_provider(
     context: str = "",
     timeout: int = 300,
     registry=None,  # ProviderRegistry | None
+    env: dict[str, str] | None = None,
 ) -> InvokeResult:
     """Invoke a provider adapter described by *contract* and return structured results.
 
@@ -131,6 +132,7 @@ def invoke_provider(
             text=True,
             timeout=timeout,
             cwd=working_dir,
+            env=env,
         )
         duration_ms = (time.monotonic() - start) * 1000
         exit_code = proc.returncode

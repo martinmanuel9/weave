@@ -455,3 +455,28 @@ def test_compact_cli_runs_lifecycle(tmp_path):
         result = runner.invoke(main, ["compact"])
     assert result.exit_code == 0
     assert "1" in result.output
+
+
+def test_read_session_history(tmp_path):
+    from weave.core.compaction import read_session_history
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True)
+    ledger = sessions_dir / "session_history.jsonl"
+    ledger.write_text(
+        '{"session_id": "sess-old", "provider": "ollama", "started": "2026-04-09T08:00:00+00:00", "ended": "2026-04-09T09:00:00+00:00", "invocation_count": 3, "total_duration_ms": 12100.0, "final_status": "success", "files_changed_count": 5, "task_snippet": "analyze code"}\n'
+        '{"session_id": "sess-new", "provider": "claude-code", "started": "2026-04-10T10:00:00+00:00", "ended": "2026-04-10T11:00:00+00:00", "invocation_count": 12, "total_duration_ms": 45000.0, "final_status": "success", "files_changed_count": 8, "task_snippet": "build the thing"}\n'
+    )
+    entries = read_session_history(sessions_dir)
+    assert len(entries) == 2
+    assert entries[0]["session_id"] == "sess-new"
+    assert entries[1]["session_id"] == "sess-old"
+
+
+def test_read_session_history_missing_ledger(tmp_path):
+    from weave.core.compaction import read_session_history
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True)
+    entries = read_session_history(sessions_dir)
+    assert entries == []

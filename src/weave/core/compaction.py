@@ -246,6 +246,32 @@ def _delete_session_files(sessions_dir: Path, session_id: str) -> list[str]:
     return errors
 
 
+def read_session_history(sessions_dir: Path, max_entries: int = 10) -> list[dict]:
+    """Read the session history ledger and return entries, most recent first.
+
+    Returns an empty list if the ledger doesn't exist or is empty.
+    Corrupt lines are silently skipped.
+    """
+    ledger_path = sessions_dir / "session_history.jsonl"
+    if not ledger_path.exists():
+        return []
+
+    entries: list[dict] = []
+    try:
+        for line in ledger_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except (OSError, UnicodeDecodeError):
+        return []
+
+    entries.reverse()
+    return entries[:max_entries]
+
+
 def compact_sessions(
     sessions_dir: Path,
     sessions_to_keep: int,

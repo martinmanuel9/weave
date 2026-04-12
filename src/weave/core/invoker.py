@@ -7,6 +7,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from weave.schemas.protocol import PROTOCOL_VERSIONS
+
 
 @dataclass
 class InvokeResult:
@@ -56,15 +60,43 @@ def _get_git_changed_files(working_dir: Path) -> list[str]:
     return deduped
 
 
+def _build_argv(runtime: str, adapter_path: Path) -> list[str]:
+    """Return the command argv for the given adapter runtime."""
+    runtime_lower = runtime.lower()
+    if runtime_lower == "bash":
+        return ["bash", str(adapter_path)]
+    elif runtime_lower == "python":
+        return ["python3", str(adapter_path)]
+    elif runtime_lower == "node":
+        return ["node", str(adapter_path)]
+    elif runtime_lower == "binary":
+        return [str(adapter_path)]
+    else:
+        raise ValueError(f"unknown adapter runtime: {runtime!r}")
+
+
 def invoke_provider(
-    adapter_script: str | Path,
+    contract,  # ProviderContract — not type-annotated to avoid circular import
     task: str,
+    session_id: str,
     working_dir: Path,
     context: str = "",
     timeout: int = 300,
+    registry=None,  # ProviderRegistry | None
 ) -> InvokeResult:
-    """Invoke an adapter script with a JSON task payload and return structured results."""
-    adapter_path = Path(adapter_script)
+    """Invoke a provider adapter described by *contract* and return structured results.
+
+    The request is built from the contract's declared protocol request schema,
+    and the response is validated against the contract's declared response schema.
+    """
+    # Resolve adapter path: prefer registry lookup, fall back to contract.adapter
+    if registry is not None and registry.has(contract.name):
+        adapter_path = registry.resolve_adapter_path(contract.name)
+    else:
+        # No registry, or contract not in registry (synthesized contract).
+        # Use contract.adapter directly — it may be an absolute path from
+        # the transitional synthesis in runtime.execute().
+        adapter_path = Path(contract.adapter)
 
     if not adapter_path.exists():
         return InvokeResult(
@@ -76,19 +108,24 @@ def invoke_provider(
             files_changed=[],
         )
 
-    payload = json.dumps(
-        {
-            "task": task,
-            "workingDir": str(working_dir),
-            "context": context,
-            "timeout": timeout,
-        }
+    # Build request payload from the contract's declared request schema
+    request_cls = PROTOCOL_VERSIONS[contract.protocol.request_schema]
+    request_obj = request_cls(
+        session_id=session_id,
+        task=task,
+        workingDir=str(working_dir),
+        context=context,
+        timeout=timeout,
     )
+    payload = request_obj.model_dump_json()
+
+    # Determine argv from adapter runtime
+    argv = _build_argv(contract.adapter_runtime.value, adapter_path)
 
     start = time.monotonic()
     try:
         proc = subprocess.run(
-            ["bash", str(adapter_path)],
+            argv,
             input=payload,
             capture_output=True,
             text=True,
@@ -111,12 +148,38 @@ def invoke_provider(
             files_changed=[],
         )
 
-    # Try to parse JSON output
+    # Parse stdout as JSON, then validate against the response schema
+    response_cls = PROTOCOL_VERSIONS[contract.protocol.response_schema]
     structured: dict | None = None
+
     try:
-        structured = json.loads(stdout)
-    except json.JSONDecodeError:
-        pass  # structured stays None; raw stdout is preserved
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        # Non-JSON output is an error under the contract protocol
+        return InvokeResult(
+            exit_code=1,
+            stdout=stdout,
+            stderr=f"adapter stdout is not valid JSON: {exc}",
+            structured=None,
+            duration=duration_ms,
+            files_changed=_get_git_changed_files(working_dir),
+        )
+
+    try:
+        validated = response_cls.model_validate(parsed)
+        structured = validated.model_dump()
+    except ValidationError as exc:
+        return InvokeResult(
+            exit_code=1,
+            stdout=stdout,
+            stderr=(
+                f"adapter response does not conform to "
+                f"{contract.protocol.response_schema}: {exc}"
+            ),
+            structured=None,
+            duration=duration_ms,
+            files_changed=_get_git_changed_files(working_dir),
+        )
 
     files_changed = _get_git_changed_files(working_dir)
 

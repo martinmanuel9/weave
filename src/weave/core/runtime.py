@@ -439,9 +439,34 @@ def execute(
             status=RuntimeStatus.DENIED,
         )
 
+    # --- Transitional contract synthesis for invoke_provider ---
+    # Task 8 will resolve the contract in prepare() and remove this block.
+    # Always synthesise from ctx.adapter_script so the adapter chosen by
+    # prepare() is honoured.  The registry is NOT consulted here because
+    # prepare() already picked the adapter path from the harness layout;
+    # Task 8 will unify these two code-paths.
+    from weave.schemas.provider_contract import (
+        AdapterRuntime,
+        ProviderContract as _ProviderContract,
+        ProviderProtocol,
+    )
+
+    _inv_contract = _ProviderContract(
+        name=ctx.active_provider,
+        display_name=ctx.active_provider,
+        adapter=str(ctx.adapter_script),
+        adapter_runtime=AdapterRuntime.BASH,
+        capability_ceiling=ctx.provider_config.capability,
+        protocol=ProviderProtocol(
+            request_schema="weave.request.v1",
+            response_schema="weave.response.v1",
+        ),
+    )
+
     invoke_result = invoke_provider(
-        adapter_script=ctx.adapter_script,
+        contract=_inv_contract,
         task=ctx.task,
+        session_id=ctx.session_id,
         working_dir=ctx.working_dir,
         context=ctx.context.full,
         timeout=timeout,

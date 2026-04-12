@@ -36,7 +36,7 @@ def _init_harness(root: Path):
     adapter.write_text(
         '#!/bin/bash\n'
         'read INPUT\n'
-        'echo \'{"exitCode": 0, "stdout": "ok", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "ok", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
     return harness
@@ -114,7 +114,7 @@ def test_execute_flags_write_deny_in_sandbox(temp_dir):
         '#!/bin/bash\n'
         'read INPUT\n'
         'echo "SECRET=leaked" > .env\n'
-        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -151,7 +151,7 @@ def test_execute_denies_write_deny_in_mvp(temp_dir):
         '#!/bin/bash\n'
         'read INPUT\n'
         'echo "fake" > credentials.json\n'
-        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -255,7 +255,7 @@ def test_execute_respects_write_allow_overrides_in_mvp(temp_dir):
         '#!/bin/bash\n'
         'read INPUT\n'
         'echo "{}" > config.json\n'
-        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -332,7 +332,7 @@ def test_execute_reverts_untracked_file_on_hard_deny(temp_dir):
         '#!/bin/bash\n'
         'read INPUT\n'
         'echo "SECRET=leaked" > .env\n'
-        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -380,7 +380,7 @@ def test_execute_reverts_tracked_file_on_hard_deny(temp_dir):
         '#!/bin/bash\n'
         'read INPUT\n'
         'echo \'{"version": "tampered"}\' > config.json\n'
-        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -424,7 +424,7 @@ def test_execute_reverts_all_files_changed_not_just_flagged(temp_dir):
         'read INPUT\n'
         'echo "def add(a, b): return a + b" > helper.py\n'
         'echo "SECRET=leaked" > .env\n'
-        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -473,7 +473,7 @@ def test_execute_preserves_pre_existing_untracked_on_revert(temp_dir):
     adapter.write_text(
         '#!/bin/bash\n'
         'read INPUT\n'
-        'echo \'{"exitCode": 0, "stdout": "no-op", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "no-op", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -513,7 +513,7 @@ def test_execute_no_revert_in_sandbox_phase(temp_dir):
         '#!/bin/bash\n'
         'read INPUT\n'
         'echo "SECRET=test" > .env\n'
-        'echo \'{"exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "done", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 
@@ -563,7 +563,7 @@ def test_execute_still_passes_context_string_to_invoker(temp_dir):
         'echo "$INPUT" | python3 -c "import sys, json; '
         'data = json.loads(sys.stdin.read()); '
         'open(\'received_context.txt\', \'w\').write(data[\'context\'])"\n'
-        'echo \'{"exitCode": 0, "stdout": "captured", "stderr": "", "structured": null}\'\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, "stdout": "captured", "stderr": "", "structured": null}\'\n'
     )
     adapter.chmod(0o755)
 

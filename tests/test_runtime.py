@@ -967,3 +967,158 @@ def test_execute_no_metadata_defaults_empty(temp_dir):
     sessions_dir = temp_dir / ".harness" / "sessions"
     records = read_session_activities(sessions_dir, result.session_id)
     assert records[0].metadata == {}
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — Post-Scan Hook Stage (REQ-3)
+# ---------------------------------------------------------------------------
+
+
+def test_post_scan_hook_runs_on_success(temp_dir):
+    """AC-4: post_scan hook runs after security scan on success."""
+    import json as _json, stat
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    marker = temp_dir / "post_scan_ran"
+    hook = temp_dir / ".harness" / "hooks" / "gate.sh"
+    hook.write_text(f'#!/bin/bash\ntouch {marker}\nexit 0\n')
+    hook.chmod(hook.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["hooks"] = {"post_scan": [str(hook)]}
+    config_path.write_text(_json.dumps(config))
+
+    result = execute(task="go", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.SUCCESS
+    assert marker.exists()
+
+
+def test_post_scan_hook_deny_triggers_revert(temp_dir):
+    """AC-4: post_scan deny sets DENIED and reverts files."""
+    import json as _json, stat, subprocess
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=temp_dir, check=True)
+    (temp_dir / ".gitignore").write_text(".harness/\n")
+    (temp_dir / "seed.txt").write_text("original")
+    subprocess.run(["git", "add", ".gitignore", "seed.txt"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=temp_dir, check=True)
+
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo "modified" > seed.txt\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 0, '
+        '"stdout": "done", "stderr": "", "structured": null}\'\n'
+    )
+    adapter.chmod(0o755)
+
+    hook = temp_dir / ".harness" / "hooks" / "deny-gate.sh"
+    hook.write_text('#!/bin/bash\necho "quality too low" >&2\nexit 1\n')
+    hook.chmod(hook.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["hooks"] = {"post_scan": [str(hook)]}
+    config_path.write_text(_json.dumps(config))
+
+    result = execute(task="modify seed", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.DENIED
+    assert (temp_dir / "seed.txt").read_text() == "original"
+
+
+def test_post_scan_hook_skipped_on_invoke_failure(temp_dir):
+    """AC-5: post_scan hooks do NOT run when invoke fails."""
+    import json as _json, stat
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 1, '
+        '"stdout": "", "stderr": "boom", "structured": null}\'\n'
+        'exit 1\n'
+    )
+    adapter.chmod(0o755)
+
+    marker = temp_dir / "should_not_exist"
+    hook = temp_dir / ".harness" / "hooks" / "gate.sh"
+    hook.write_text(f'#!/bin/bash\ntouch {marker}\nexit 0\n')
+    hook.chmod(hook.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["hooks"] = {"post_scan": [str(hook)]}
+    config_path.write_text(_json.dumps(config))
+
+    result = execute(task="fail", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.FAILED
+    assert not marker.exists()
+
+
+def test_post_scan_hook_skipped_on_timeout(temp_dir):
+    """AC-5: post_scan hooks do NOT run on timeout."""
+    import json as _json, stat
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    adapter = temp_dir / ".harness" / "providers" / "claude-code.sh"
+    adapter.write_text(
+        '#!/bin/bash\n'
+        'read INPUT\n'
+        'echo \'{"protocol": "weave.response.v1", "exitCode": 124, '
+        '"stdout": "", "stderr": "timed out", "structured": null}\'\n'
+        'exit 124\n'
+    )
+    adapter.chmod(0o755)
+
+    marker = temp_dir / "should_not_exist"
+    hook = temp_dir / ".harness" / "hooks" / "gate.sh"
+    hook.write_text(f'#!/bin/bash\ntouch {marker}\nexit 0\n')
+    hook.chmod(hook.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["hooks"] = {"post_scan": [str(hook)]}
+    config_path.write_text(_json.dumps(config))
+
+    result = execute(task="timeout", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.TIMEOUT
+    assert not marker.exists()
+
+
+def test_post_scan_hook_receives_enriched_context(temp_dir):
+    """AC-1 + AC-4: post_scan hook receives security findings and files_changed."""
+    import json as _json, stat
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    output_file = temp_dir / "hook_input.json"
+    hook = temp_dir / ".harness" / "hooks" / "inspector.sh"
+    hook.write_text(f'#!/bin/bash\ncat > {output_file}\nexit 0\n')
+    hook.chmod(hook.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["hooks"] = {"post_scan": [str(hook)]}
+    config_path.write_text(_json.dumps(config))
+
+    result = execute(task="inspect", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.SUCCESS
+    assert output_file.exists()
+
+    received = _json.loads(output_file.read_text())
+    assert "risk_class" in received
+    assert "session_id" in received
+    assert "files_changed" in received
+    assert "exit_code" in received
+    assert "security_findings" in received
+    assert received["phase"] == "post-scan"

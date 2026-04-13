@@ -23,6 +23,7 @@ class ProviderConfig(BaseModel):
 class HooksConfig(BaseModel):
     pre_invoke: list[str] = Field(default_factory=list)
     post_invoke: list[str] = Field(default_factory=list)
+    post_scan: list[str] = Field(default_factory=list)
     pre_commit: list[str] = Field(default_factory=list)
 
 

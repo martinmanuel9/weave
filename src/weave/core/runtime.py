@@ -362,6 +362,34 @@ def _security_scan(
     )
 
 
+def _post_scan_gate(
+    ctx: PreparedContext,
+    invoke_result: InvokeResult,
+    security_result: SecurityResult,
+    policy: PolicyResult,
+) -> tuple[list[HookResult], bool]:
+    """Stage 4b: run post-scan hooks. Returns (results, denied)."""
+    if not ctx.config.hooks.post_scan:
+        return [], False
+
+    hook_ctx = HookContext(
+        provider=ctx.active_provider,
+        task=ctx.task,
+        working_dir=str(ctx.working_dir),
+        phase="post-scan",
+        risk_class=policy.effective_risk_class.value,
+        session_id=ctx.session_id,
+        provider_contract=ctx.active_provider,
+        files_changed=invoke_result.files_changed,
+        exit_code=invoke_result.exit_code,
+        security_findings=[
+            f.model_dump(mode="json") for f in security_result.findings
+        ],
+    )
+    chain = run_hooks(ctx.config.hooks.post_scan, hook_ctx)
+    return chain.results, not chain.allowed
+
+
 def _cleanup(
     ctx: PreparedContext,
     invoke_result: InvokeResult | None,
@@ -582,6 +610,8 @@ def execute(
             env=sandbox_env,
         )
 
+        post_scan_results: list[HookResult] = []
+
         if invoke_result.exit_code == 124:
             status = RuntimeStatus.TIMEOUT
             security_result = None
@@ -597,17 +627,27 @@ def execute(
             else:
                 status = RuntimeStatus.SUCCESS
 
+            # Post-scan quality gate (REQ-3) — only on successful invocation
+            if status in (RuntimeStatus.SUCCESS, RuntimeStatus.FLAGGED):
+                post_scan_results, post_scan_denied = _post_scan_gate(
+                    ctx, invoke_result, security_result, policy,
+                )
+                if post_scan_denied:
+                    status = RuntimeStatus.DENIED
+                    security_result.action_taken = "denied"
+
         post_hook_results = _cleanup(ctx, invoke_result, security_result)
 
         _revert(ctx, invoke_result, security_result)
 
+        all_post_hooks = post_scan_results + post_hook_results
         _record(
             ctx,
             invoke_result,
             policy,
             security_result,
             pre_hook_results,
-            post_hook_results,
+            all_post_hooks,
             status,
             metadata=ctx.metadata,
         )

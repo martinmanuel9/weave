@@ -1122,3 +1122,57 @@ def test_post_scan_hook_receives_enriched_context(temp_dir):
     assert "exit_code" in received
     assert "security_findings" in received
     assert received["phase"] == "post-scan"
+
+
+def test_on_activity_callback_receives_record(temp_dir):
+    """AC-6: Callback receives the ActivityRecord after recording."""
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    received = []
+    def capture(record):
+        received.append(record)
+
+    result = execute(
+        task="callback test",
+        working_dir=temp_dir,
+        caller="test",
+        on_activity=[capture],
+    )
+    assert result.status == RuntimeStatus.SUCCESS
+    assert len(received) == 1
+    assert received[0].task == "callback test"
+    assert received[0].session_id == result.session_id
+
+
+def test_on_activity_callback_failure_does_not_crash(temp_dir):
+    """AC-6: Callback exception is logged but pipeline succeeds."""
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+
+    def exploding_callback(record):
+        raise RuntimeError("callback boom")
+
+    result = execute(
+        task="survives callback",
+        working_dir=temp_dir,
+        caller="test",
+        on_activity=[exploding_callback],
+    )
+    assert result.status == RuntimeStatus.SUCCESS
+
+
+def test_on_activity_not_serialized_to_config():
+    """AC-7: on_activity is excluded from JSON serialization."""
+    from weave.schemas.config import WeaveConfig
+    config = WeaveConfig(on_activity=[lambda r: None])
+    dumped = config.model_dump(mode="json")
+    assert "on_activity" not in dumped
+
+
+def test_execute_no_on_activity_backwards_compat(temp_dir):
+    """AC-7: Omitting on_activity works identically to before."""
+    from weave.core.runtime import execute
+    _init_harness(temp_dir)
+    result = execute(task="compat", working_dir=temp_dir, caller="test")
+    assert result.status == RuntimeStatus.SUCCESS

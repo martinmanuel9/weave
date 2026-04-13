@@ -505,7 +505,7 @@ def _record(
     post_hook_results: list[HookResult],
     status: RuntimeStatus,
     metadata: dict | None = None,
-) -> None:
+) -> ActivityRecord:
     """Stage 7: append an enriched ActivityRecord to session JSONL."""
     sessions_dir = ctx.working_dir / ".harness" / "sessions"
 
@@ -550,6 +550,15 @@ def _record(
     compact_threshold = ctx.config.sessions.compaction.records_per_session
     append_activity(sessions_dir, ctx.session_id, record, compact_threshold=compact_threshold)
 
+    # Fire activity event callbacks (REQ-4)
+    for cb in ctx.config.on_activity:
+        try:
+            cb(record)
+        except Exception:
+            _logger.exception("on_activity callback %r failed", cb)
+
+    return record
+
 
 def execute(
     task: str,
@@ -560,6 +569,7 @@ def execute(
     timeout: int = 300,
     session_id: str | None = None,
     metadata: dict | None = None,
+    on_activity: list | None = None,
 ) -> RuntimeResult:
     """Run the full 7-stage pipeline and return a RuntimeResult."""
     ctx = prepare(
@@ -571,6 +581,9 @@ def execute(
         session_id=session_id,
         metadata=metadata,
     )
+
+    if on_activity:
+        ctx.config.on_activity = on_activity
 
     policy, pre_hook_results = _policy_check(ctx)
 

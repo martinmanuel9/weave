@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from weave.schemas.policy import RiskClass, RuleOverride
 
@@ -105,6 +106,8 @@ class VolatileContextConfig(BaseModel):
 
 
 class WeaveConfig(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     version: str = "1"
     phase: str = "sandbox"
     default_provider: str = "claude-code"
@@ -116,6 +119,7 @@ class WeaveConfig(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     volatile_context: VolatileContextConfig = Field(default_factory=VolatileContextConfig)
+    on_activity: list[Callable] = Field(default_factory=list, exclude=True)
 
 
 def create_default_config(default_provider: str = "claude-code") -> WeaveConfig:

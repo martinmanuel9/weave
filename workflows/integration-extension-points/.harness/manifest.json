@@ -1,0 +1,16 @@
+{
+  "id": "workflow-integration-extension-points",
+  "type": "workflow",
+  "name": "integration-extension-points",
+  "status": "planned",
+  "phase": "sandbox",
+  "parent": "a38a0302-62fe-4328-9ee1-e9f077f071b5",
+  "children": [],
+  "provider": "claude-code",
+  "agent": null,
+  "created": "2026-04-12T00:00:00Z",
+  "updated": "2026-04-12T00:00:00Z",
+  "inputs": {},
+  "outputs": {},
+  "tags": ["phase-a", "integration", "extension-points"]
+}

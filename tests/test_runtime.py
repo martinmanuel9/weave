@@ -938,3 +938,32 @@ def test_prepare_effective_capability_clamps_to_contract_ceiling(temp_dir):
         phase=ctx.phase,
     )
     assert policy.effective_risk_class == RiskClass.READ_ONLY
+
+
+def test_execute_metadata_passthrough(temp_dir):
+    """AC-3: metadata kwarg lands in ActivityRecord.metadata."""
+    from weave.core.runtime import execute
+    from weave.core.session import read_session_activities
+    _init_harness(temp_dir)
+    result = execute(
+        task="with meta",
+        working_dir=temp_dir,
+        caller="test",
+        metadata={"cje_score": 0.87, "intent": "code_generation"},
+    )
+    assert result.status == RuntimeStatus.SUCCESS
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    records = read_session_activities(sessions_dir, result.session_id)
+    assert records[0].metadata["cje_score"] == 0.87
+    assert records[0].metadata["intent"] == "code_generation"
+
+
+def test_execute_no_metadata_defaults_empty(temp_dir):
+    """AC-7: No metadata parameter = empty dict (backwards compat)."""
+    from weave.core.runtime import execute
+    from weave.core.session import read_session_activities
+    _init_harness(temp_dir)
+    result = execute(task="no meta", working_dir=temp_dir, caller="test")
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    records = read_session_activities(sessions_dir, result.session_id)
+    assert records[0].metadata == {}

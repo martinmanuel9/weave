@@ -120,6 +120,11 @@ class PreparedContext:
     caller: str | None
     requested_risk_class: RiskClass | None
     pre_invoke_untracked: set[str]
+    metadata: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
 
 
 @dataclass
@@ -199,6 +204,7 @@ def prepare(
     caller: str | None = None,
     requested_risk_class: RiskClass | None = None,
     session_id: str | None = None,
+    metadata: dict | None = None,
 ) -> PreparedContext:
     """Stage 1: load config, resolve provider, assemble context, create session."""
     config = resolve_config(working_dir)
@@ -246,6 +252,7 @@ def prepare(
         caller=caller,
         requested_risk_class=requested_risk_class,
         pre_invoke_untracked=pre_invoke_untracked,
+        metadata=metadata or {},
     )
 
     # Session binding: validate if reusing, write if new
@@ -469,6 +476,7 @@ def _record(
     pre_hook_results: list[HookResult],
     post_hook_results: list[HookResult],
     status: RuntimeStatus,
+    metadata: dict | None = None,
 ) -> None:
     """Stage 7: append an enriched ActivityRecord to session JSONL."""
     sessions_dir = ctx.working_dir / ".harness" / "sessions"
@@ -509,6 +517,7 @@ def _record(
         approval_status=approval_status_map[status],
         caller=ctx.caller,
         runtime_status=status.value,
+        metadata=metadata or {},
     )
     compact_threshold = ctx.config.sessions.compaction.records_per_session
     append_activity(sessions_dir, ctx.session_id, record, compact_threshold=compact_threshold)
@@ -522,6 +531,7 @@ def execute(
     requested_risk_class: RiskClass | None = None,
     timeout: int = 300,
     session_id: str | None = None,
+    metadata: dict | None = None,
 ) -> RuntimeResult:
     """Run the full 7-stage pipeline and return a RuntimeResult."""
     ctx = prepare(
@@ -531,12 +541,13 @@ def execute(
         caller=caller,
         requested_risk_class=requested_risk_class,
         session_id=session_id,
+        metadata=metadata,
     )
 
     policy, pre_hook_results = _policy_check(ctx)
 
     if not policy.allowed:
-        _record(ctx, None, policy, None, pre_hook_results, [], RuntimeStatus.DENIED)
+        _record(ctx, None, policy, None, pre_hook_results, [], RuntimeStatus.DENIED, metadata=ctx.metadata)
         return RuntimeResult(
             invoke_result=None,
             policy_result=policy,
@@ -598,6 +609,7 @@ def execute(
             pre_hook_results,
             post_hook_results,
             status,
+            metadata=ctx.metadata,
         )
     finally:
         if sandbox_tmpdir and sandbox_tmpdir.exists():

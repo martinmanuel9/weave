@@ -14,7 +14,15 @@ class HookContext:
     provider: str
     task: str
     working_dir: str
-    phase: str  # "pre-invoke" or "post-invoke"
+    phase: str  # "pre-invoke", "post-invoke", or "post-scan"
+
+    # Enriched fields (REQ-1) — None/[] when not yet available
+    risk_class: str | None = None
+    session_id: str | None = None
+    provider_contract: str | None = None
+    files_changed: list[str] = field(default_factory=list)
+    exit_code: int | None = None
+    security_findings: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -22,6 +30,12 @@ class HookContext:
             "task": self.task,
             "working_dir": self.working_dir,
             "phase": self.phase,
+            "risk_class": self.risk_class,
+            "session_id": self.session_id,
+            "provider_contract": self.provider_contract,
+            "files_changed": self.files_changed,
+            "exit_code": self.exit_code,
+            "security_findings": self.security_findings,
         }
 
 

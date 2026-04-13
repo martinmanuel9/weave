@@ -102,3 +102,100 @@ def test_mixed_hooks(tmp_path: Path, ctx: HookContext) -> None:
     assert len(result.results) == 2
     assert result.results[0].result == "allow"
     assert result.results[1].result == "deny"
+
+
+# ---------------------------------------------------------------------------
+# Enriched HookContext tests
+# ---------------------------------------------------------------------------
+
+
+def test_hook_context_to_dict_includes_new_fields():
+    """AC-8: to_dict() includes all new fields."""
+    ctx = HookContext(
+        provider="claude-code",
+        task="do stuff",
+        working_dir="/tmp",
+        phase="post-invoke",
+        risk_class="workspace-write",
+        session_id="sess-123",
+        provider_contract="claude-code",
+        files_changed=["main.py", "utils.py"],
+        exit_code=0,
+        security_findings=[{"rule_id": "pth-injection", "file": "evil.pth"}],
+    )
+    d = ctx.to_dict()
+    assert d["risk_class"] == "workspace-write"
+    assert d["session_id"] == "sess-123"
+    assert d["provider_contract"] == "claude-code"
+    assert d["files_changed"] == ["main.py", "utils.py"]
+    assert d["exit_code"] == 0
+    assert len(d["security_findings"]) == 1
+
+
+def test_hook_context_pre_invoke_nulls():
+    """AC-2: Pre-invoke context has None/[] for unavailable fields."""
+    ctx = HookContext(
+        provider="claude-code",
+        task="do stuff",
+        working_dir="/tmp",
+        phase="pre-invoke",
+        risk_class="workspace-write",
+        session_id="sess-456",
+        provider_contract="claude-code",
+    )
+    d = ctx.to_dict()
+    assert d["risk_class"] == "workspace-write"
+    assert d["session_id"] == "sess-456"
+    assert d["files_changed"] == []
+    assert d["exit_code"] is None
+    assert d["security_findings"] == []
+
+
+def test_hook_context_backwards_compat():
+    """AC-7: Old-style construction with no new fields still works."""
+    ctx = HookContext(
+        provider="claude-code",
+        task="x",
+        working_dir="/tmp",
+        phase="pre-invoke",
+    )
+    d = ctx.to_dict()
+    assert d["risk_class"] is None
+    assert d["session_id"] is None
+    assert d["files_changed"] == []
+    assert d["exit_code"] is None
+    assert d["security_findings"] == []
+
+
+def test_script_hook_receives_enriched_context(tmp_path: Path):
+    """AC-1: Script hook receives JSON with new fields on stdin."""
+    import stat
+
+    output_file = tmp_path / "received.json"
+    script = tmp_path / "inspector.sh"
+    script.write_text(
+        f'#!/usr/bin/env bash\ncat > {output_file}\nexit 0\n'
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    ctx = HookContext(
+        provider="claude-code",
+        task="inspect",
+        working_dir="/tmp",
+        phase="post-invoke",
+        risk_class="workspace-write",
+        session_id="sess-789",
+        provider_contract="claude-code",
+        files_changed=["app.py"],
+        exit_code=0,
+        security_findings=[],
+    )
+    run_hooks([str(script)], ctx)
+
+    import json
+    received = json.loads(output_file.read_text())
+    assert received["risk_class"] == "workspace-write"
+    assert received["session_id"] == "sess-789"
+    assert received["files_changed"] == ["app.py"]
+    assert received["exit_code"] == 0
+    assert received["security_findings"] == []

@@ -276,6 +276,9 @@ def _policy_check(ctx: PreparedContext) -> tuple[PolicyResult, list[HookResult]]
         task=ctx.task,
         working_dir=str(ctx.working_dir),
         phase="pre-invoke",
+        risk_class=policy.effective_risk_class.value,
+        session_id=ctx.session_id,
+        provider_contract=ctx.active_provider,
     )
     chain = run_hooks(ctx.config.hooks.pre_invoke, hook_ctx)
 
@@ -355,6 +358,7 @@ def _security_scan(
 def _cleanup(
     ctx: PreparedContext,
     invoke_result: InvokeResult | None,
+    security_result: SecurityResult | None = None,
 ) -> list[HookResult]:
     """Stage 5: run post-invoke hooks."""
     if invoke_result is None:
@@ -364,6 +368,15 @@ def _cleanup(
         task=ctx.task,
         working_dir=str(ctx.working_dir),
         phase="post-invoke",
+        risk_class=ctx.requested_risk_class.value if ctx.requested_risk_class else None,
+        session_id=ctx.session_id,
+        provider_contract=ctx.active_provider,
+        files_changed=invoke_result.files_changed,
+        exit_code=invoke_result.exit_code,
+        security_findings=[
+            f.model_dump(mode="json")
+            for f in (security_result.findings if security_result else [])
+        ],
     )
     chain = run_hooks(ctx.config.hooks.post_invoke, hook_ctx)
     return chain.results
@@ -573,7 +586,7 @@ def execute(
             else:
                 status = RuntimeStatus.SUCCESS
 
-        post_hook_results = _cleanup(ctx, invoke_result)
+        post_hook_results = _cleanup(ctx, invoke_result, security_result)
 
         _revert(ctx, invoke_result, security_result)
 

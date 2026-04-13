@@ -1176,3 +1176,54 @@ def test_execute_no_on_activity_backwards_compat(temp_dir):
     _init_harness(temp_dir)
     result = execute(task="compat", working_dir=temp_dir, caller="test")
     assert result.status == RuntimeStatus.SUCCESS
+
+
+def test_full_integration_all_extension_points(temp_dir):
+    """Integration: metadata + enriched hooks + post-scan + callback all together."""
+    import json as _json, stat
+    from weave.core.runtime import execute
+    from weave.core.session import read_session_activities
+    _init_harness(temp_dir)
+
+    # Post-scan hook that inspects context
+    context_file = temp_dir / "post_scan_context.json"
+    hook = temp_dir / ".harness" / "hooks" / "inspector.sh"
+    hook.write_text(f'#!/bin/bash\ncat > {context_file}\nexit 0\n')
+    hook.chmod(hook.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    config_path = temp_dir / ".harness" / "config.json"
+    config = _json.loads(config_path.read_text())
+    config["hooks"] = {"post_scan": [str(hook)]}
+    config_path.write_text(_json.dumps(config))
+
+    # Activity callback
+    callback_records = []
+    def capture(record):
+        callback_records.append(record)
+
+    result = execute(
+        task="full integration",
+        working_dir=temp_dir,
+        caller="itzel",
+        metadata={"cje_score": 0.92, "routing_intent": "code_gen"},
+        on_activity=[capture],
+    )
+
+    # Pipeline succeeded
+    assert result.status == RuntimeStatus.SUCCESS
+
+    # Metadata landed in ActivityRecord
+    sessions_dir = temp_dir / ".harness" / "sessions"
+    records = read_session_activities(sessions_dir, result.session_id)
+    assert records[0].metadata["cje_score"] == 0.92
+
+    # Post-scan hook received enriched context
+    assert context_file.exists()
+    received = _json.loads(context_file.read_text())
+    assert received["phase"] == "post-scan"
+    assert received["session_id"] == result.session_id
+    assert "risk_class" in received
+
+    # Callback fired
+    assert len(callback_records) == 1
+    assert callback_records[0].metadata["routing_intent"] == "code_gen"

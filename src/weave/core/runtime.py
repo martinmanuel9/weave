@@ -34,6 +34,11 @@ from weave.schemas.policy import (
 )
 from weave.schemas.provider_contract import ProviderContract
 
+from weave.core.feedback import append_feedback, compute_all_scores, save_routing_scores, load_feedback
+from weave.core.skills import load_skill, update_skill_metrics, save_skill
+from weave.core.healing import attempt_healing
+from weave.schemas.feedback import FeedbackRecord, HealingDetail
+
 
 _logger = logging.getLogger(__name__)
 
@@ -560,6 +565,97 @@ def _record(
     return record
 
 
+def _feedback_and_healing(
+    ctx,  # PreparedContext
+    invoke_result,  # InvokeResult | None
+    status,  # RuntimeStatus
+) -> "InvokeResult | None":
+    """Post-invoke: record feedback, attempt healing on failure, update routing scores."""
+    if invoke_result is None:
+        return None
+
+    working_dir = ctx.working_dir
+
+    # Determine outcome
+    if status == RuntimeStatus.SUCCESS:
+        outcome = "success"
+    elif status == RuntimeStatus.TIMEOUT:
+        outcome = "timeout"
+    else:
+        outcome = "failure"
+
+    # Build feedback record
+    intent = ctx.metadata.get("intent", "") if ctx.metadata else ""
+    skill_name = ctx.metadata.get("skill_used", "") if ctx.metadata else ""
+
+    record = FeedbackRecord(
+        session_id=ctx.session_id,
+        intent=intent,
+        intent_confidence=ctx.metadata.get("intent_confidence", 0.0) if ctx.metadata else 0.0,
+        intent_source=ctx.metadata.get("intent_source", "") if ctx.metadata else "",
+        provider=ctx.active_provider,
+        routing_source=ctx.metadata.get("routing_source", "static") if ctx.metadata else "static",
+        skill_used=skill_name,
+        task_preview=ctx.task[:100],
+        outcome=outcome,
+        duration_ms=int(invoke_result.duration),
+        context_injection=bool(ctx.metadata.get("context_injection")) if ctx.metadata else False,
+    )
+
+    # Attempt healing on failure
+    if outcome in ("failure", "timeout") and skill_name:
+        try:
+            skill = load_skill(skill_name, working_dir)
+            healing_result = attempt_healing(
+                failure_reason=f"{outcome}: exit_code={invoke_result.exit_code}",
+                skill=skill,
+                task=ctx.task,
+                working_dir=working_dir,
+                session_id=ctx.session_id,
+            )
+            if healing_result.healed:
+                record.outcome = "healed"
+                record.healing = HealingDetail(
+                    used=True,
+                    attempts=healing_result.attempts,
+                    original_failure=f"{outcome}: exit_code={invoke_result.exit_code}",
+                    fallbacks=healing_result.fallback_details,
+                )
+                record.duration_ms += int(healing_result.invoke_result.duration)
+
+                # Update skill healing log
+                if healing_result.healing_log_entry:
+                    skill.healing_log.append(healing_result.healing_log_entry)
+                    save_skill(skill, working_dir)
+
+                invoke_result = healing_result.invoke_result
+        except FileNotFoundError:
+            pass  # No skill definition, skip healing
+
+    # Append feedback record
+    try:
+        append_feedback(record, working_dir)
+    except Exception:
+        pass  # Non-fatal
+
+    # Update skill metrics
+    if skill_name:
+        try:
+            update_skill_metrics(skill_name, record, working_dir)
+        except FileNotFoundError:
+            pass
+
+    # Recompute routing scores
+    try:
+        all_records = load_feedback(working_dir)
+        scores = compute_all_scores(all_records)
+        save_routing_scores(scores, working_dir)
+    except Exception:
+        pass  # Non-fatal -- don't break the pipeline
+
+    return invoke_result
+
+
 def execute(
     task: str,
     working_dir: Path,
@@ -650,6 +746,9 @@ def execute(
                     security_result.action_taken = "denied"
 
         post_hook_results = _cleanup(ctx, invoke_result, security_result)
+
+        # Stage 5b: Feedback and healing
+        invoke_result = _feedback_and_healing(ctx, invoke_result, status) or invoke_result
 
         _revert(ctx, invoke_result, security_result)
 

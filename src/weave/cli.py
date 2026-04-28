@@ -821,3 +821,123 @@ def providers_list_cmd(as_json):
         click.echo(
             f"  {'':<15} {health:<18} ({c.source})"
         )
+
+
+# ---------------------------------------------------------------------------
+# weave skill
+# ---------------------------------------------------------------------------
+
+@main.group("skill")
+def skill_group():
+    """Manage the skill registry."""
+
+
+@skill_group.command("list")
+def skill_list_cmd():
+    """List all registered skills with metrics."""
+    from weave.core.skills import list_skills
+
+    cwd = Path.cwd()
+    skills = list_skills(cwd)
+    if not skills:
+        click.echo("No skills registered. Use 'weave skill create' to add one.")
+        return
+
+    for s in skills:
+        score = round(s.metrics.successes / s.metrics.invocations, 2) if s.metrics.invocations > 0 else 0.0
+        click.echo(
+            f"  {s.name:24s}  provider={s.strategy.primary_provider:12s}  "
+            f"invocations={s.metrics.invocations:4d}  score={score:.2f}"
+        )
+
+
+@skill_group.command("show")
+@click.argument("name")
+def skill_show_cmd(name: str):
+    """Show details for a specific skill."""
+    from weave.core.skills import load_skill
+
+    try:
+        skill = load_skill(name, Path.cwd())
+    except FileNotFoundError:
+        click.echo(f"Skill not found: {name}")
+        raise SystemExit(1)
+
+    click.echo(skill.model_dump_json(indent=2))
+
+
+@skill_group.command("create")
+@click.argument("name")
+@click.option("--provider", required=True, help="Primary provider name")
+@click.option("--intent", multiple=True, required=True, help="Intent(s) this skill handles")
+@click.option("--fallback", multiple=True, help="Fallback provider(s)")
+@click.option("--context", default="", help="Context injection text")
+def skill_create_cmd(
+    name: str,
+    provider: str,
+    intent: tuple[str, ...],
+    fallback: tuple[str, ...],
+    context: str,
+):
+    """Create a new skill definition."""
+    from weave.core.skills import save_skill
+    from weave.schemas.skill import SkillDefinition, SkillStrategy
+
+    skill = SkillDefinition(
+        name=name,
+        description=f"Skill for {', '.join(intent)}",
+        intents=list(intent),
+        strategy=SkillStrategy(
+            primary_provider=provider,
+            fallback_providers=list(fallback),
+            context_injection=context,
+        ),
+    )
+    save_skill(skill, Path.cwd())
+    click.echo(f"Created skill: {name}")
+
+
+@skill_group.command("promote")
+@click.argument("name")
+def skill_promote_cmd(name: str):
+    """Promote a proven skill to Open Brain for cross-project sharing."""
+    import json as _json
+    from weave.core.skills import load_skill
+    from weave.integrations.open_brain import capture_thought
+
+    try:
+        skill = load_skill(name, Path.cwd())
+    except FileNotFoundError:
+        click.echo(f"Skill not found: {name}")
+        raise SystemExit(1)
+
+    confidence = round(skill.metrics.successes / skill.metrics.invocations, 2) if skill.metrics.invocations > 0 else 0.0
+    if confidence < 0.85 or skill.metrics.invocations < 5:
+        click.echo(
+            f"Skill {name} not ready for promotion "
+            f"(score={confidence:.2f}, invocations={skill.metrics.invocations}). "
+            f"Needs score >= 0.85 and >= 5 invocations."
+        )
+        raise SystemExit(1)
+
+    config_path = Path.cwd() / ".harness" / "config.json"
+    if not config_path.exists():
+        click.echo("No .harness/config.json found.")
+        raise SystemExit(1)
+
+    config = _json.loads(config_path.read_text())
+    integrations = config.get("integrations", {}).get("open_brain", {})
+    ob_url = integrations.get("url", "")
+    ob_key = integrations.get("key", "")
+
+    if not ob_url or not ob_key:
+        click.echo("Open Brain not configured in .harness/config.json")
+        raise SystemExit(1)
+
+    content = f"skill:{name}\n\n{skill.model_dump_json(indent=2)}"
+    success = capture_thought(ob_url, ob_key, content)
+    if success:
+        click.echo(f"Promoted skill {name} to Open Brain")
+    else:
+        click.echo("Failed to promote to Open Brain")
+        raise SystemExit(1)

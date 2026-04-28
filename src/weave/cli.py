@@ -941,3 +941,42 @@ def skill_promote_cmd(name: str):
     else:
         click.echo("Failed to promote to Open Brain")
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# weave hermes
+# ---------------------------------------------------------------------------
+
+@main.group("hermes")
+def hermes_group():
+    """Manage Weave-owned context applied to a hermes-agent checkout."""
+
+
+@hermes_group.command("apply-context")
+@click.option("--repo", "repo_path", default=None, type=click.Path(file_okay=False),
+              help="Path to hermes-agent checkout (default: ~/repos/hermes-agent)")
+@click.option("--force", is_flag=True,
+              help="Replace existing real files at symlink targets")
+def hermes_apply_context_cmd(repo_path, force):
+    """Symlink CLAUDE.md/.claude/ and inject AGENTS.md GitNexus snippet."""
+    from weave.integrations.hermes import apply_context
+
+    target = Path(repo_path).expanduser() if repo_path else Path.home() / "repos" / "hermes-agent"
+    actions = apply_context(target, force=force)
+    click.echo(f"Applied Weave context to {target}:")
+    for path, action in actions.items():
+        click.echo(f"  {action:<24} {path}")
+
+
+@hermes_group.command("remove-context")
+@click.option("--repo", "repo_path", default=None, type=click.Path(file_okay=False),
+              help="Path to hermes-agent checkout (default: ~/repos/hermes-agent)")
+def hermes_remove_context_cmd(repo_path):
+    """Delete Weave-applied symlinks and remove the AGENTS.md marker block."""
+    from weave.integrations.hermes import remove_context
+
+    target = Path(repo_path).expanduser() if repo_path else Path.home() / "repos" / "hermes-agent"
+    actions = remove_context(target)
+    click.echo(f"Removed Weave context from {target}:")
+    for path, action in actions.items():
+        click.echo(f"  {action:<24} {path}")

@@ -1,0 +1,27 @@
+{
+  "name": "browser-automation",
+  "version": "1",
+  "description": "Skill for browser_automation",
+  "intents": [
+    "browser_automation"
+  ],
+  "strategy": {
+    "primary_provider": "hermes",
+    "fallback_providers": [
+      "claude-code"
+    ],
+    "context_injection": "Use Browserbase for remote browser execution with stealth mode.",
+    "timeout_ms": 30000,
+    "max_retries": 2
+  },
+  "metrics": {
+    "invocations": 0,
+    "successes": 0,
+    "failures": 0,
+    "avg_duration_ms": 0,
+    "by_provider": {}
+  },
+  "healing_log": [],
+  "created_at": "2026-04-28T03:51:24.905740Z",
+  "updated_at": "2026-04-28T03:51:24.905764Z"
+}

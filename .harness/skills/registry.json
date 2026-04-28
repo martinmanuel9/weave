@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "skills": {
+    "web-research": {
+      "file": "web-research.skill.json",
+      "confidence_score": 0.5,
+      "provider": "hermes",
+      "intents": [
+        "web_research",
+        "multi_step_task"
+      ]
+    },
+    "image-gen": {
+      "file": "image-gen.skill.json",
+      "confidence_score": 0.5,
+      "provider": "hermes",
+      "intents": [
+        "image_generation"
+      ]
+    },
+    "browser-automation": {
+      "file": "browser-automation.skill.json",
+      "confidence_score": 0.5,
+      "provider": "hermes",
+      "intents": [
+        "browser_automation"
+      ]
+    },
+    "scheduled-automation": {
+      "file": "scheduled-automation.skill.json",
+      "confidence_score": 0.5,
+      "provider": "hermes",
+      "intents": [
+        "scheduled_automation"
+      ]
+    },
+    "multi-step-task": {
+      "file": "multi-step-task.skill.json",
+      "confidence_score": 0.5,
+      "provider": "hermes",
+      "intents": [
+        "multi_step_task"
+      ]
+    },
+    "voice-transcription": {
+      "file": "voice-transcription.skill.json",
+      "confidence_score": 0.5,
+      "provider": "hermes",
+      "intents": [
+        "voice_transcription"
+      ]
+    }
+  },
+  "last_updated": "2026-04-28T03:51:24.916006+00:00"
+}

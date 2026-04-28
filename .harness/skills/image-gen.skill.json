@@ -1,0 +1,25 @@
+{
+  "name": "image-gen",
+  "version": "1",
+  "description": "Skill for image_generation",
+  "intents": [
+    "image_generation"
+  ],
+  "strategy": {
+    "primary_provider": "hermes",
+    "fallback_providers": [],
+    "context_injection": "Generate high-quality images using FAL.ai.",
+    "timeout_ms": 30000,
+    "max_retries": 2
+  },
+  "metrics": {
+    "invocations": 0,
+    "successes": 0,
+    "failures": 0,
+    "avg_duration_ms": 0,
+    "by_provider": {}
+  },
+  "healing_log": [],
+  "created_at": "2026-04-28T03:51:12.921202Z",
+  "updated_at": "2026-04-28T03:51:12.921217Z"
+}

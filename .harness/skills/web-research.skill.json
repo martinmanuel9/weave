@@ -1,0 +1,29 @@
+{
+  "name": "web-research",
+  "version": "1",
+  "description": "Skill for web_research, multi_step_task",
+  "intents": [
+    "web_research",
+    "multi_step_task"
+  ],
+  "strategy": {
+    "primary_provider": "hermes",
+    "fallback_providers": [
+      "claude-code",
+      "gemini"
+    ],
+    "context_injection": "Use at least 3 sources and cross-reference claims before synthesizing.",
+    "timeout_ms": 30000,
+    "max_retries": 2
+  },
+  "metrics": {
+    "invocations": 0,
+    "successes": 0,
+    "failures": 0,
+    "avg_duration_ms": 0,
+    "by_provider": {}
+  },
+  "healing_log": [],
+  "created_at": "2026-04-28T03:49:13.222572Z",
+  "updated_at": "2026-04-28T03:49:13.222582Z"
+}

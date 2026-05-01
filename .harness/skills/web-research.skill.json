@@ -17,13 +17,28 @@
     "max_retries": 2
   },
   "metrics": {
-    "invocations": 0,
-    "successes": 0,
+    "invocations": 1,
+    "successes": 1,
     "failures": 0,
     "avg_duration_ms": 0,
-    "by_provider": {}
+    "by_provider": {
+      "hermes": {
+        "invocations": 1,
+        "successes": 1,
+        "avg_ms": 32272,
+        "score": 0.5
+      }
+    }
   },
-  "healing_log": [],
+  "healing_log": [
+    {
+      "timestamp": "2026-04-28T04:09:59.472772Z",
+      "trigger": "failure: exit_code=0",
+      "action": "fallback to claude-code",
+      "outcome": "success",
+      "duration_ms": 15126
+    }
+  ],
   "created_at": "2026-04-28T03:49:13.222572Z",
-  "updated_at": "2026-04-28T03:49:13.222582Z"
+  "updated_at": "2026-04-28T04:09:59.473285Z"
 }

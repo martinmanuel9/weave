@@ -22,6 +22,11 @@
       "command": ".harness/providers/ollama.sh",
       "enabled": true,
       "health_check": "which ollama"
+    },
+    "hermes": {
+      "command": ".harness/providers/hermes.sh",
+      "enabled": true,
+      "health_check": "curl -sf http://localhost:11434/v1/models > /dev/null"
     }
   },
   "hooks": {

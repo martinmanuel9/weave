@@ -4,7 +4,7 @@
   "display_name": "Hermes Agent",
   "adapter": "hermes.sh",
   "adapter_runtime": "bash",
-  "capability_ceiling": "external-network",
+  "capability_ceiling": "workspace-write",
   "protocol": {
     "request_schema": "weave.request.v1",
     "response_schema": "weave.response.v1"

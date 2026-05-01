@@ -20,3 +20,11 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+.gitnexus
+
+# Claude Code local config
+.claude/
+
+# Harness runtime state (telemetry, sessions, learned routing)
+.harness/sessions/
+.harness/feedback/
